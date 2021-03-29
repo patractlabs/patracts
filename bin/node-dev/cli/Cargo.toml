@@ -38,8 +38,8 @@ frame-benchmarking = { version = "3.0.0", git = "https://github.com/paritytech/s
 frame-benchmarking-cli = { version = "3.0.0", git = "https://github.com/paritytech/substrate", branch = "master" }
 substrate-frame-rpc-system = { version = "3.0.0", git = "https://github.com/paritytech/substrate", branch = "master" }
 pallet-transaction-payment-rpc = { version = "3.0.0", git = "https://github.com/paritytech/substrate", branch = "master" }
-pallet-contracts = { version = "3.0.0", git = "https://github.com/paritytech/substrate", branch = "master" }
-pallet-contracts-rpc = { version = "3.0.0", git = "https://github.com/paritytech/substrate", branch = "master" }
+pallet-contracts = { version = "3.0.0", path = "../../../pallets/contracts" }
+pallet-contracts-rpc = { version = "3.0.0", path = "../../../pallets/contracts/rpc" }
 
 ec-service = { git = "https://github.com/patractlabs/europa", branch = "master" }
 ec-rpc = { git = "https://github.com/patractlabs/europa", branch = "master" }
