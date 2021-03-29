@@ -1,0 +1,9 @@
+[package]
+name = "patracts-dev"
+version = "1.0.0"
+authors = ["Patract <dev@patract.io>"]
+edition = "2018"
+description = ""
+
+[dependencies]
+cli = { package = "patracts-dev-cli", path = "cli" }

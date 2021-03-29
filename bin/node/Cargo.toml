@@ -1,0 +1,12 @@
+[package]
+name = "patracts"
+version = "0.1.0"
+authors = ["Patract <dev@patract.io>"]
+edition = "2018"
+description = ""
+
+[dependencies]
+cli = { package = "patracts-cli", path = "cli" }
+
+[features]
+runtime-benchmarks = [ "cli/runtime-benchmarks" ]

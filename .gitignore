@@ -1,0 +1,21 @@
+**/target/
+**/*.rs.bk
+**/*.wasm
+*.swp
+.wasm-binaries
+**/._*
+.vscode/
+.DS_Store
+*.o
+*.so
+*.rlib
+*.dll
+/target/
+*.exe
+.vs/
+.idea/
+.sub/
+log/
+
+# need to inclue wasm src file
+!/pallets/template/res/*

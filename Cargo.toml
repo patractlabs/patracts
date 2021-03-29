@@ -1,0 +1,12 @@
+[workspace]
+members = [
+    "bin/node",
+    "bin/node-dev",
+
+    "runtime/dev",
+    "runtime/patracts",
+]
+
+[profile.release]
+panic = "unwind"
+
