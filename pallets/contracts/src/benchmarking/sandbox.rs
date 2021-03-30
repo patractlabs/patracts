@@ -18,11 +18,7 @@
 ///! For instruction benchmarking we do no instantiate a full contract but merely the
 ///! sandbox to execute the wasm code. This is because we do not need the full
 ///! environment that provides the seal interface as imported functions.
-
-use super::{
-	Config,
-	code::WasmModule,
-};
+use super::{code::WasmModule, Config};
 use sp_core::crypto::UncheckedFrom;
 use sp_sandbox::{EnvironmentDefinitionBuilder, Instance, Memory};
 

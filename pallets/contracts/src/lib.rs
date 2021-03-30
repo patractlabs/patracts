@@ -85,17 +85,17 @@
 //! * [Balances](../pallet_balances/index.html)
 
 #![cfg_attr(not(feature = "std"), no_std)]
-#![cfg_attr(feature = "runtime-benchmarks", recursion_limit="512")]
+#![cfg_attr(feature = "runtime-benchmarks", recursion_limit = "512")]
 
 #[macro_use]
 mod gas;
-mod storage;
-mod exec;
-mod wasm;
-mod rent;
 mod benchmarking;
-mod schedule;
+mod exec;
 mod migration;
+mod rent;
+mod schedule;
+mod storage;
+mod wasm;
 
 pub mod chain_extension;
 pub mod weights;
@@ -103,44 +103,43 @@ pub mod weights;
 #[cfg(test)]
 mod tests;
 
-pub use crate::{pallet::*, schedule::Schedule};
 use crate::{
+	exec::{Executable, ExecutionContext},
 	gas::GasMeter,
-	exec::{ExecutionContext, Executable},
 	rent::Rent,
-	storage::{Storage, DeletedContract, ContractInfo, AliveContractInfo, TombstoneContractInfo},
-	weights::WeightInfo,
+	storage::{AliveContractInfo, ContractInfo, DeletedContract, Storage, TombstoneContractInfo},
 	wasm::PrefabWasmModule,
+	weights::WeightInfo,
 };
-use sp_core::crypto::UncheckedFrom;
-use sp_std::prelude::*;
-use sp_runtime::{
-	traits::{
-		Hash, StaticLookup, Convert, Saturating, Zero,
-	},
-	Perbill,
-};
+pub use crate::{pallet::*, schedule::Schedule};
 use frame_support::{
-	traits::{OnUnbalanced, Currency, Get, Time, Randomness},
-	weights::{Weight, PostDispatchInfo, WithPostDispatchInfo},
+	traits::{Currency, Get, OnUnbalanced, Randomness, Time},
+	weights::{PostDispatchInfo, Weight, WithPostDispatchInfo},
 };
 use frame_system::Pallet as System;
 use pallet_contracts_primitives::{
-	RentProjectionResult, GetStorageResult, ContractAccessError, ContractExecResult,
+	ContractAccessError, ContractExecResult, GetStorageResult, RentProjectionResult,
 };
+use sp_core::crypto::UncheckedFrom;
+use sp_runtime::{
+	traits::{Convert, Hash, Saturating, StaticLookup, Zero},
+	ModuleId, Perbill,
+};
+use sp_std::prelude::*;
 
 type CodeHash<T> = <T as frame_system::Config>::Hash;
 type TrieId = Vec<u8>;
 type BalanceOf<T> =
 	<<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
-type NegativeImbalanceOf<T> =
-	<<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::NegativeImbalance;
+type NegativeImbalanceOf<T> = <<T as Config>::Currency as Currency<
+	<T as frame_system::Config>::AccountId,
+>>::NegativeImbalance;
 
 #[frame_support::pallet]
 pub mod pallet {
+	use super::*;
 	use frame_support::pallet_prelude::*;
 	use frame_system::pallet_prelude::*;
-	use super::*;
 
 	#[pallet::config]
 	pub trait Config: frame_system::Config {
@@ -217,6 +216,10 @@ pub mod pallet {
 		#[pallet::constant]
 		type MaxValueSize: Get<u32>;
 
+		/// The contract's module id, used for deriving its sovereign account ID.
+		// #[pallet::constant]
+		type ModuleId: Get<ModuleId>;
+
 		/// Used to answer contracts' queries regarding the current weight price. This is **not**
 		/// used to calculate the actual fee and is only for informational purposes.
 		type WeightPrice: Convert<Weight, BalanceOf<Self>>;
@@ -255,7 +258,8 @@ pub mod pallet {
 		fn on_initialize(_block: T::BlockNumber) -> Weight {
 			// We do not want to go above the block limit and rather avoid lazy deletion
 			// in that case. This should only happen on runtime upgrades.
-			let weight_limit = T::BlockWeights::get().max_block
+			let weight_limit = T::BlockWeights::get()
+				.max_block
 				.saturating_sub(System::<T>::block_weight().total())
 				.min(T::DeletionWeightLimit::get());
 			Storage::<T>::process_deletion_queue_batch(weight_limit)
@@ -282,7 +286,7 @@ pub mod pallet {
 		#[pallet::weight(T::WeightInfo::update_schedule())]
 		pub fn update_schedule(
 			origin: OriginFor<T>,
-			schedule: Schedule<T>
+			schedule: Schedule<T>,
 		) -> DispatchResultWithPostInfo {
 			ensure_root(origin)?;
 			if <CurrentSchedule<T>>::get().version > schedule.version {
@@ -306,7 +310,7 @@ pub mod pallet {
 			dest: <T::Lookup as StaticLookup>::Source,
 			#[pallet::compact] value: BalanceOf<T>,
 			#[pallet::compact] gas_limit: Weight,
-			data: Vec<u8>
+			data: Vec<u8>,
 		) -> DispatchResultWithPostInfo {
 			let origin = ensure_signed(origin)?;
 			let dest = T::Lookup::lookup(dest)?;
@@ -365,11 +369,12 @@ pub mod pallet {
 			let code_len = executable.code_len();
 			ensure!(code_len <= T::MaxCodeSize::get(), Error::<T>::CodeTooLarge);
 			let mut ctx = ExecutionContext::<T, PrefabWasmModule<T>>::top_level(origin, &schedule);
-			let result = ctx.instantiate(endowment, &mut gas_meter, executable, data, &salt)
+			let result = ctx
+				.instantiate(endowment, &mut gas_meter, executable, data, &salt)
 				.map(|(_address, output)| output);
 			gas_meter.into_dispatch_result(
 				result,
-				T::WeightInfo::instantiate_with_code(code_len / 1024, salt.len() as u32 / 1024)
+				T::WeightInfo::instantiate_with_code(code_len / 1024, salt.len() as u32 / 1024),
 			)
 		}
 
@@ -396,7 +401,8 @@ pub mod pallet {
 			let executable = PrefabWasmModule::from_storage(code_hash, &schedule, &mut gas_meter)?;
 			let mut ctx = ExecutionContext::<T, PrefabWasmModule<T>>::top_level(origin, &schedule);
 			let code_len = executable.code_len();
-			let result = ctx.instantiate(endowment, &mut gas_meter, executable, data, &salt)
+			let result = ctx
+				.instantiate(endowment, &mut gas_meter, executable, data, &salt)
 				.map(|(_address, output)| output);
 			gas_meter.into_dispatch_result(
 				result,
@@ -417,16 +423,12 @@ pub mod pallet {
 		pub fn claim_surcharge(
 			origin: OriginFor<T>,
 			dest: T::AccountId,
-			aux_sender: Option<T::AccountId>
+			aux_sender: Option<T::AccountId>,
 		) -> DispatchResultWithPostInfo {
 			let origin = origin.into();
 			let (signed, rewarded) = match (origin, aux_sender) {
-				(Ok(frame_system::RawOrigin::Signed(account)), None) => {
-					(true, account)
-				},
-				(Ok(frame_system::RawOrigin::None), Some(aux_sender)) => {
-					(false, aux_sender)
-				},
+				(Ok(frame_system::RawOrigin::Signed(account)), None) => (true, account),
+				(Ok(frame_system::RawOrigin::None), Some(aux_sender)) => (false, aux_sender),
 				_ => Err(Error::<T>::InvalidSurchargeClaim)?,
 			};
 
@@ -441,20 +443,17 @@ pub mod pallet {
 
 			// If poking the contract has lead to eviction of the contract, give out the rewards.
 			match Rent::<T, PrefabWasmModule<T>>::try_eviction(&dest, handicap)? {
-				(Some(rent_payed), code_len) => {
-					T::Currency::deposit_into_existing(
-						&rewarded,
-						T::SurchargeReward::get().min(rent_payed),
-					)
-					.map(|_| PostDispatchInfo {
-						actual_weight: Some(T::WeightInfo::claim_surcharge(code_len / 1024)),
-						pays_fee: Pays::No,
-					})
-					.map_err(Into::into)
-				}
-				(None, code_len) => Err(Error::<T>::ContractNotEvictable.with_weight(
-					T::WeightInfo::claim_surcharge(code_len / 1024)
-				)),
+				(Some(rent_payed), code_len) => T::Currency::deposit_into_existing(
+					&rewarded,
+					T::SurchargeReward::get().min(rent_payed),
+				)
+				.map(|_| PostDispatchInfo {
+					actual_weight: Some(T::WeightInfo::claim_surcharge(code_len / 1024)),
+					pays_fee: Pays::No,
+				})
+				.map_err(Into::into),
+				(None, code_len) => Err(Error::<T>::ContractNotEvictable
+					.with_weight(T::WeightInfo::claim_surcharge(code_len / 1024))),
 			}
 		}
 	}
@@ -617,7 +616,8 @@ pub mod pallet {
 
 	/// A mapping between an original code hash and instrumented wasm code, ready for execution.
 	#[pallet::storage]
-	pub(crate) type CodeStorage<T: Config> = StorageMap<_, Identity, CodeHash<T>, PrefabWasmModule<T>>;
+	pub(crate) type CodeStorage<T: Config> =
+		StorageMap<_, Identity, CodeHash<T>, PrefabWasmModule<T>>;
 
 	/// The subtrie counter.
 	#[pallet::storage]
@@ -627,7 +627,8 @@ pub mod pallet {
 	///
 	/// TWOX-NOTE: SAFE since `AccountId` is a secure hash.
 	#[pallet::storage]
-	pub(crate) type ContractInfoOf<T: Config> = StorageMap<_, Twox64Concat, T::AccountId, ContractInfo<T>>;
+	pub(crate) type ContractInfoOf<T: Config> =
+		StorageMap<_, Twox64Concat, T::AccountId, ContractInfo<T>>;
 
 	/// Evicted contracts that await child trie deletion.
 	///
@@ -635,7 +636,6 @@ pub mod pallet {
 	/// stored in said trie. Therefore this operation is performed lazily in `on_initialize`.
 	#[pallet::storage]
 	pub(crate) type DeletionQueue<T: Config> = StorageValue<_, Vec<DeletedContract>, ValueQuery>;
-
 
 	#[pallet::genesis_config]
 	pub struct GenesisConfig<T: Config> {
@@ -717,9 +717,10 @@ where
 		deploying_address: &T::AccountId,
 		code_hash: &CodeHash<T>,
 		salt: &[u8],
-	) -> T::AccountId
-	{
-		let buf: Vec<_> = deploying_address.as_ref().iter()
+	) -> T::AccountId {
+		let buf: Vec<_> = deploying_address
+			.as_ref()
+			.iter()
 			.chain(code_hash.as_ref())
 			.chain(salt)
 			.cloned()
@@ -764,7 +765,7 @@ where
 	#[cfg(feature = "runtime-benchmarks")]
 	fn reinstrument_module(
 		module: &mut PrefabWasmModule<T>,
-		schedule: &Schedule<T>
+		schedule: &Schedule<T>,
 	) -> frame_support::dispatch::DispatchResult {
 		self::wasm::reinstrument(module, schedule)
 	}

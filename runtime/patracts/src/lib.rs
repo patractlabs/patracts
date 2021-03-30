@@ -11,13 +11,14 @@ use pallet_grandpa::{AuthorityId as GrandpaId, AuthorityList as GrandpaAuthority
 use sp_api::impl_runtime_apis;
 use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 use sp_core::{crypto::KeyTypeId, OpaqueMetadata};
-use sp_runtime::traits::{
-	AccountIdLookup, BlakeTwo256, Block as BlockT, IdentifyAccount, NumberFor, Verify,
-};
 use sp_runtime::{
 	create_runtime_str, generic, impl_opaque_keys,
 	transaction_validity::{TransactionSource, TransactionValidity},
 	ApplyExtrinsicResult, MultiSignature,
+};
+use sp_runtime::{
+	traits::{AccountIdLookup, BlakeTwo256, Block as BlockT, IdentifyAccount, NumberFor, Verify},
+	ModuleId,
 };
 use sp_std::prelude::*;
 #[cfg(feature = "std")]
@@ -268,6 +269,7 @@ parameter_types! {
 	pub const SignedClaimHandicap: u32 = 2;
 	pub const MaxDepth: u32 = 32;
 	pub const MaxValueSize: u32 = 16 * 1024;
+	pub const ContractsModuleId: ModuleId = ModuleId(*b"py/contr");
 	// The lazy deletion runs inside on_initialize.
 	pub DeletionWeightLimit: Weight = Perbill::from_percent(10) *
 		BlockWeights::get().max_block;
@@ -301,6 +303,7 @@ impl pallet_contracts::Config for Runtime {
 	type ChainExtension = ();
 	type DeletionQueueDepth = DeletionQueueDepth;
 	type DeletionWeightLimit = DeletionWeightLimit;
+	type ModuleId = ContractsModuleId;
 }
 
 // Create the runtime by composing the FRAME pallets that were previously configured.

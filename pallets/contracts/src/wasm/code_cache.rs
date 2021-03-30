@@ -27,16 +27,17 @@
 //! this guarantees that every instrumented contract code in cache cannot have the version equal to the current one.
 //! Thus, before executing a contract it should be reinstrument with new schedule.
 
-use crate::{
-	CodeHash, CodeStorage, PristineCode, Schedule, Config, Error, Weight,
-	wasm::{prepare, PrefabWasmModule}, Pallet as Contracts, Event,
-	gas::{GasMeter, Token},
-	weights::WeightInfo,
-};
-use sp_core::crypto::UncheckedFrom;
-use frame_support::dispatch::DispatchError;
 #[cfg(feature = "runtime-benchmarks")]
-pub use self::private::reinstrument as reinstrument;
+pub use self::private::reinstrument;
+use crate::{
+	gas::{GasMeter, Token},
+	wasm::{prepare, PrefabWasmModule},
+	weights::WeightInfo,
+	CodeHash, CodeStorage, Config, Error, Event, Pallet as Contracts, PristineCode, Schedule,
+	Weight,
+};
+use frame_support::dispatch::DispatchError;
+use sp_core::crypto::UncheckedFrom;
 
 /// Put the instrumented module in storage.
 ///
@@ -44,7 +45,7 @@ pub use self::private::reinstrument as reinstrument;
 /// under the specified `code_hash`.
 pub fn store<T: Config>(mut prefab_module: PrefabWasmModule<T>)
 where
-	T::AccountId: UncheckedFrom<T::Hash> + AsRef<[u8]>
+	T::AccountId: UncheckedFrom<T::Hash> + AsRef<[u8]>,
 {
 	let code_hash = sp_std::mem::take(&mut prefab_module.code_hash);
 
@@ -53,13 +54,11 @@ where
 	if let Some(code) = prefab_module.original_code.take() {
 		<PristineCode<T>>::insert(&code_hash, code);
 	}
-	<CodeStorage<T>>::mutate(&code_hash, |existing| {
-		match existing {
-			Some(module) => increment_64(&mut module.refcount),
-			None => {
-				*existing = Some(prefab_module);
-				Contracts::<T>::deposit_event(Event::CodeStored(code_hash))
-			}
+	<CodeStorage<T>>::mutate(&code_hash, |existing| match existing {
+		Some(module) => increment_64(&mut module.refcount),
+		None => {
+			*existing = Some(prefab_module);
+			Contracts::<T>::deposit_event(Event::CodeStored(code_hash))
 		}
 	});
 }
@@ -69,7 +68,7 @@ where
 /// Removes the code instead of storing it when the refcount drops to zero.
 pub fn store_decremented<T: Config>(mut prefab_module: PrefabWasmModule<T>)
 where
-	T::AccountId: UncheckedFrom<T::Hash> + AsRef<[u8]>
+	T::AccountId: UncheckedFrom<T::Hash> + AsRef<[u8]>,
 {
 	prefab_module.refcount = prefab_module.refcount.saturating_sub(1);
 	if prefab_module.refcount > 0 {
@@ -83,7 +82,7 @@ where
 /// Increment the refcount of a code in-storage by one.
 pub fn increment_refcount<T: Config>(code_hash: CodeHash<T>) -> Result<u32, DispatchError>
 where
-	T::AccountId: UncheckedFrom<T::Hash> + AsRef<[u8]>
+	T::AccountId: UncheckedFrom<T::Hash> + AsRef<[u8]>,
 {
 	<CodeStorage<T>>::mutate(code_hash, |existing| {
 		if let Some(module) = existing {
@@ -98,7 +97,7 @@ where
 /// Decrement the refcount of a code in-storage by one and remove the code when it drops to zero.
 pub fn decrement_refcount<T: Config>(code_hash: CodeHash<T>) -> u32
 where
-	T::AccountId: UncheckedFrom<T::Hash> + AsRef<[u8]>
+	T::AccountId: UncheckedFrom<T::Hash> + AsRef<[u8]>,
 {
 	<CodeStorage<T>>::mutate_exists(code_hash, |existing| {
 		if let Some(module) = existing {
@@ -125,10 +124,10 @@ pub fn load<T: Config>(
 	reinstrument: Option<(&Schedule<T>, &mut GasMeter<T>)>,
 ) -> Result<PrefabWasmModule<T>, DispatchError>
 where
-	T::AccountId: UncheckedFrom<T::Hash> + AsRef<[u8]>
+	T::AccountId: UncheckedFrom<T::Hash> + AsRef<[u8]>,
 {
-	let mut prefab_module = <CodeStorage<T>>::get(code_hash)
-		.ok_or_else(|| Error::<T>::CodeNotFound)?;
+	let mut prefab_module =
+		<CodeStorage<T>>::get(code_hash).ok_or_else(|| Error::<T>::CodeNotFound)?;
 	prefab_module.code_hash = code_hash;
 
 	if let Some((schedule, gas_meter)) = reinstrument {
@@ -153,7 +152,7 @@ mod private {
 		schedule: &Schedule<T>,
 	) -> Result<(), DispatchError>
 	where
-		T::AccountId: UncheckedFrom<T::Hash> + AsRef<[u8]>
+		T::AccountId: UncheckedFrom<T::Hash> + AsRef<[u8]>,
 	{
 		let original_code = <PristineCode<T>>::get(&prefab_module.code_hash)
 			.ok_or_else(|| Error::<T>::CodeNotFound)?;
@@ -167,7 +166,7 @@ mod private {
 /// Finish removal of a code by deleting the pristine code and emitting an event.
 fn finish_removal<T: Config>(code_hash: CodeHash<T>)
 where
-	T::AccountId: UncheckedFrom<T::Hash> + AsRef<[u8]>
+	T::AccountId: UncheckedFrom<T::Hash> + AsRef<[u8]>,
 {
 	<PristineCode<T>>::remove(code_hash);
 	Contracts::<T>::deposit_event(Event::CodeRemoved(code_hash))
@@ -178,13 +177,15 @@ where
 /// We try hard to be infallible here because otherwise more storage transactions would be
 /// necessary to account for failures in storing code for an already instantiated contract.
 fn increment_64(refcount: &mut u64) {
-	*refcount = refcount.checked_add(1).expect("
+	*refcount = refcount.checked_add(1).expect(
+		"
 		refcount is 64bit. Generating this overflow would require to store
 		_at least_ 18 exabyte of data assuming that a contract consumes only
 		one byte of data. Any node would run out of storage space before hitting
 		this overflow.
 		qed
-	");
+	",
+	);
 }
 
 /// Token to be supplied to the gas meter which charges the weight needed for reinstrumenting

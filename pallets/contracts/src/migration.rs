@@ -15,8 +15,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{Config, Weight, CurrentSchedule, Pallet, Schedule};
-use frame_support::traits::{GetPalletVersion, PalletVersion, Get};
+use crate::{Config, CurrentSchedule, Pallet, Schedule, Weight};
+use frame_support::traits::{Get, GetPalletVersion, PalletVersion};
 
 pub fn migrate<T: Config>() -> Weight {
 	let mut weight: Weight = 0;
@@ -31,7 +31,7 @@ pub fn migrate<T: Config>() -> Weight {
 						version: version.saturating_add(1),
 						// Default limits were not decreased. Therefore it is OK to overwrite
 						// the schedule with the new defaults.
-						.. Default::default()
+						..Default::default()
 					})
 				} else {
 					None

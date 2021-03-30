@@ -20,11 +20,11 @@
 //! from a module.
 
 use crate::{
-	Schedule, Config,
 	chain_extension::ChainExtension,
-	wasm::{PrefabWasmModule, env_def::ImportSatisfyCheck},
+	wasm::{env_def::ImportSatisfyCheck, PrefabWasmModule},
+	Config, Schedule,
 };
-use parity_wasm::elements::{self, Internal, External, MemoryType, Type, ValueType};
+use parity_wasm::elements::{self, External, Internal, MemoryType, Type, ValueType};
 use sp_runtime::traits::Hash;
 use sp_std::prelude::*;
 
@@ -43,10 +43,7 @@ impl<'a, T: Config> ContractModule<'a, T> {
 	///
 	/// Returns `Err` if the `original_code` couldn't be decoded or
 	/// if it contains an invalid module.
-	fn new(
-		original_code: &[u8],
-		schedule: &'a Schedule<T>,
-	) -> Result<Self, &'static str> {
+	fn new(original_code: &[u8], schedule: &'a Schedule<T>) -> Result<Self, &'static str> {
 		use wasmi_validation::{validate_module, PlainValidator};
 
 		let module =
@@ -57,10 +54,7 @@ impl<'a, T: Config> ContractModule<'a, T> {
 
 		// Return a `ContractModule` instance with
 		// __valid__ module.
-		Ok(ContractModule {
-			module,
-			schedule,
-		})
+		Ok(ContractModule { module, schedule })
 	}
 
 	/// Ensures that module doesn't declare internal memories.
@@ -69,7 +63,8 @@ impl<'a, T: Config> ContractModule<'a, T> {
 	/// Memory section contains declarations of internal linear memories, so if we find one
 	/// we reject such a module.
 	fn ensure_no_internal_memory(&self) -> Result<(), &'static str> {
-		if self.module
+		if self
+			.module
 			.memory_section()
 			.map_or(false, |ms| ms.entries().len() > 0)
 		{
@@ -90,7 +85,7 @@ impl<'a, T: Config> ContractModule<'a, T> {
 				// Check the table's initial size as there is no instruction or environment function
 				// capable of growing the table.
 				if table_type.limits().initial() > limit {
-					return Err("table exceeds maximum size allowed")
+					return Err("table exceeds maximum size allowed");
 				}
 			}
 		}
@@ -104,11 +99,15 @@ impl<'a, T: Config> ContractModule<'a, T> {
 		} else {
 			return Ok(());
 		};
-		for instr in code_section.bodies().iter().flat_map(|body| body.code().elements()) {
+		for instr in code_section
+			.bodies()
+			.iter()
+			.flat_map(|body| body.code().elements())
+		{
 			use parity_wasm::elements::Instruction::BrTable;
 			if let BrTable(table) = instr {
 				if table.table.len() > limit as usize {
-					return Err("BrTable's immediate value is too big.")
+					return Err("BrTable's immediate value is too big.");
 				}
 			}
 		}
@@ -118,7 +117,7 @@ impl<'a, T: Config> ContractModule<'a, T> {
 	fn ensure_global_variable_limit(&self, limit: u32) -> Result<(), &'static str> {
 		if let Some(global_section) = self.module.global_section() {
 			if global_section.entries().len() > limit as usize {
-				return Err("module declares too many globals")
+				return Err("module declares too many globals");
 			}
 		}
 		Ok(())
@@ -129,8 +128,9 @@ impl<'a, T: Config> ContractModule<'a, T> {
 		if let Some(global_section) = self.module.global_section() {
 			for global in global_section.entries() {
 				match global.global_type().content_type() {
-					ValueType::F32 | ValueType::F64 =>
-						return Err("use of floating point type in globals is forbidden"),
+					ValueType::F32 | ValueType::F64 => {
+						return Err("use of floating point type in globals is forbidden")
+					}
 					_ => {}
 				}
 			}
@@ -140,8 +140,9 @@ impl<'a, T: Config> ContractModule<'a, T> {
 			for func_body in code_section.bodies() {
 				for local in func_body.locals() {
 					match local.value_type() {
-						ValueType::F32 | ValueType::F64 =>
-							return Err("use of floating point type in locals is forbidden"),
+						ValueType::F32 | ValueType::F64 => {
+							return Err("use of floating point type in locals is forbidden")
+						}
 						_ => {}
 					}
 				}
@@ -155,8 +156,11 @@ impl<'a, T: Config> ContractModule<'a, T> {
 						let return_type = func_type.return_type();
 						for value_type in func_type.params().iter().chain(return_type.iter()) {
 							match value_type {
-								ValueType::F32 | ValueType::F64 =>
-									return Err("use of floating point type in function types is forbidden"),
+								ValueType::F32 | ValueType::F64 => {
+									return Err(
+										"use of floating point type in function types is forbidden",
+									)
+								}
 								_ => {}
 							}
 						}
@@ -187,11 +191,8 @@ impl<'a, T: Config> ContractModule<'a, T> {
 
 	fn inject_gas_metering(self) -> Result<Self, &'static str> {
 		let gas_rules = self.schedule.rules(&self.module);
-		let contract_module = pwasm_utils::inject_gas_counter(
-			self.module,
-			&gas_rules,
-			"seal0",
-		).map_err(|_| "gas instrumentation failed")?;
+		let contract_module = pwasm_utils::inject_gas_counter(self.module, &gas_rules, "seal0")
+			.map_err(|_| "gas instrumentation failed")?;
 		Ok(ContractModule {
 			module: contract_module,
 			schedule: self.schedule,
@@ -199,10 +200,11 @@ impl<'a, T: Config> ContractModule<'a, T> {
 	}
 
 	fn inject_stack_height_metering(self) -> Result<Self, &'static str> {
-		let contract_module =
-			pwasm_utils::stack_height
-				::inject_limiter(self.module, self.schedule.limits.stack_height)
-				.map_err(|_| "stack height instrumentation failed")?;
+		let contract_module = pwasm_utils::stack_height::inject_limiter(
+			self.module,
+			self.schedule.limits.stack_height,
+		)
+		.map_err(|_| "stack height instrumentation failed")?;
 		Ok(ContractModule {
 			module: contract_module,
 			schedule: self.schedule,
@@ -240,11 +242,9 @@ impl<'a, T: Config> ContractModule<'a, T> {
 			.map(|is| is.entries())
 			.unwrap_or(&[])
 			.iter()
-			.filter(|entry| {
-				match *entry.external() {
-					External::Function(_) => true,
-					_ => false,
-				}
+			.filter(|entry| match *entry.external() {
+				External::Function(_) => true,
+				_ => false,
 			})
 			.count();
 
@@ -273,15 +273,17 @@ impl<'a, T: Config> ContractModule<'a, T> {
 
 			// Then check the signature.
 			// Both "call" and "deploy" has a () -> () function type.
-			let func_ty_idx = func_entries.get(fn_idx as usize)
+			let func_ty_idx = func_entries
+				.get(fn_idx as usize)
 				.ok_or_else(|| "export refers to non-existent function")?
 				.type_ref();
 			let Type::Function(ref func_ty) = types
 				.get(func_ty_idx as usize)
 				.ok_or_else(|| "function has a non-existent type")?;
-			if !func_ty.params().is_empty() ||
-				!(func_ty.return_type().is_none() ||
-					func_ty.return_type() == Some(ValueType::I32)) {
+			if !func_ty.params().is_empty()
+				|| !(func_ty.return_type().is_none()
+					|| func_ty.return_type() == Some(ValueType::I32))
+			{
 				return Err("entry point has wrong signature");
 			}
 		}
@@ -304,9 +306,10 @@ impl<'a, T: Config> ContractModule<'a, T> {
 	///   their signatures.
 	/// - if there is a memory import, returns it's descriptor
 	/// `import_fn_banlist`: list of function names that are disallowed to be imported
-	fn scan_imports<C: ImportSatisfyCheck>(&self, import_fn_banlist: &[&[u8]])
-		-> Result<Option<&MemoryType>, &'static str>
-	{
+	fn scan_imports<C: ImportSatisfyCheck>(
+		&self,
+		import_fn_banlist: &[&[u8]],
+	) -> Result<Option<&MemoryType>, &'static str> {
 		let module = &self.module;
 
 		let types = module.type_section().map(|ts| ts.types()).unwrap_or(&[]);
@@ -327,10 +330,10 @@ impl<'a, T: Config> ContractModule<'a, T> {
 						return Err("Invalid module for imported memory");
 					}
 					if import.field() != "memory" {
-						return Err("Memory import must have the field name 'memory'")
+						return Err("Memory import must have the field name 'memory'");
 					}
 					if imported_mem_type.is_some() {
-						return Err("Multiple memory imports defined")
+						return Err("Multiple memory imports defined");
 					}
 					imported_mem_type = Some(memory_type);
 					continue;
@@ -347,17 +350,20 @@ impl<'a, T: Config> ContractModule<'a, T> {
 				return Err("module imports `seal_println` but debug features disabled");
 			}
 
-			if !T::ChainExtension::enabled() &&
-				import.field().as_bytes() == b"seal_call_chain_extension"
+			if !T::ChainExtension::enabled()
+				&& import.field().as_bytes() == b"seal_call_chain_extension"
 			{
 				return Err("module uses chain extensions but chain extensions are disabled");
 			}
 
-			if import_fn_banlist.iter().any(|f| import.field().as_bytes() == *f)
+			if import_fn_banlist
+				.iter()
+				.any(|f| import.field().as_bytes() == *f)
 				|| !C::can_satisfy(
-					import.module().as_bytes(), import.field().as_bytes(), func_ty,
-				)
-			{
+					import.module().as_bytes(),
+					import.field().as_bytes(),
+					func_ty,
+				) {
 				return Err("module imports a non-existent function");
 			}
 		}
@@ -365,14 +371,14 @@ impl<'a, T: Config> ContractModule<'a, T> {
 	}
 
 	fn into_wasm_code(self) -> Result<Vec<u8>, &'static str> {
-		elements::serialize(self.module)
-			.map_err(|_| "error serializing instrumented module")
+		elements::serialize(self.module).map_err(|_| "error serializing instrumented module")
 	}
 }
 
-fn get_memory_limits<T: Config>(module: Option<&MemoryType>, schedule: &Schedule<T>)
-	-> Result<(u32, u32), &'static str>
-{
+fn get_memory_limits<T: Config>(
+	module: Option<&MemoryType>,
+	schedule: &Schedule<T>,
+) -> Result<(u32, u32), &'static str> {
 	if let Some(memory_type) = module {
 		// Inspect the module to extract the initial and maximum page count.
 		let limits = memory_type.limits();
@@ -417,7 +423,7 @@ fn check_and_instrument<C: ImportSatisfyCheck, T: Config>(
 	let disallowed_imports = [b"gas".as_ref()];
 	let memory_limits = get_memory_limits(
 		contract_module.scan_imports::<C>(&disallowed_imports)?,
-		schedule
+		schedule,
 	)?;
 
 	let code = contract_module
@@ -432,10 +438,8 @@ fn do_preparation<C: ImportSatisfyCheck, T: Config>(
 	original_code: Vec<u8>,
 	schedule: &Schedule<T>,
 ) -> Result<PrefabWasmModule<T>, &'static str> {
-	let (code, (initial, maximum)) = check_and_instrument::<C, T>(
-		original_code.as_ref(),
-		schedule,
-	)?;
+	let (code, (initial, maximum)) =
+		check_and_instrument::<C, T>(original_code.as_ref(), schedule)?;
 	Ok(PrefabWasmModule {
 		schedule_version: schedule.version,
 		initial,
@@ -497,9 +501,10 @@ pub mod benchmarking {
 	}
 
 	/// Prepare function that neither checks nor instruments the passed in code.
-	pub fn prepare_contract<T: Config>(original_code: Vec<u8>, schedule: &Schedule<T>)
-		-> Result<PrefabWasmModule<T>, &'static str>
-	{
+	pub fn prepare_contract<T: Config>(
+		original_code: Vec<u8>,
+		schedule: &Schedule<T>,
+	) -> Result<PrefabWasmModule<T>, &'static str> {
 		let contract_module = ContractModule::new(&original_code, schedule)?;
 		let memory_limits = get_memory_limits(contract_module.scan_imports::<()>(&[])?, schedule)?;
 		Ok(PrefabWasmModule {
@@ -572,7 +577,8 @@ mod tests {
 		};
 	}
 
-	prepare_test!(no_floats,
+	prepare_test!(
+		no_floats,
 		r#"
 		(module
 			(func (export "call")
@@ -591,7 +597,8 @@ mod tests {
 	mod functions {
 		use super::*;
 
-		prepare_test!(param_number_valid,
+		prepare_test!(
+			param_number_valid,
 			r#"
 			(module
 				(func (export "call"))
@@ -602,7 +609,8 @@ mod tests {
 			Ok(_)
 		);
 
-		prepare_test!(param_number_invalid,
+		prepare_test!(
+			param_number_invalid,
 			r#"
 			(module
 				(func (export "call"))
@@ -618,7 +626,8 @@ mod tests {
 	mod globals {
 		use super::*;
 
-		prepare_test!(global_number_valid,
+		prepare_test!(
+			global_number_valid,
 			r#"
 			(module
 				(global i64 (i64.const 0))
@@ -631,7 +640,8 @@ mod tests {
 			Ok(_)
 		);
 
-		prepare_test!(global_number_too_high,
+		prepare_test!(
+			global_number_too_high,
 			r#"
 			(module
 				(global i64 (i64.const 0))
@@ -649,7 +659,8 @@ mod tests {
 	mod memories {
 		use super::*;
 
-		prepare_test!(memory_with_one_page,
+		prepare_test!(
+			memory_with_one_page,
 			r#"
 			(module
 				(import "env" "memory" (memory 1 1))
@@ -661,7 +672,8 @@ mod tests {
 			Ok(_)
 		);
 
-		prepare_test!(internal_memory_declaration,
+		prepare_test!(
+			internal_memory_declaration,
 			r#"
 			(module
 				(memory 1 1)
@@ -673,7 +685,8 @@ mod tests {
 			Err("module declares internal memory")
 		);
 
-		prepare_test!(no_memory_import,
+		prepare_test!(
+			no_memory_import,
 			r#"
 			(module
 				;; no memory imported
@@ -684,7 +697,8 @@ mod tests {
 			Ok(_)
 		);
 
-		prepare_test!(initial_exceeds_maximum,
+		prepare_test!(
+			initial_exceeds_maximum,
 			r#"
 			(module
 				(import "env" "memory" (memory 16 1))
@@ -696,7 +710,8 @@ mod tests {
 			Err("Module is not valid")
 		);
 
-		prepare_test!(no_maximum,
+		prepare_test!(
+			no_maximum,
 			r#"
 			(module
 				(import "env" "memory" (memory 1))
@@ -708,7 +723,8 @@ mod tests {
 			Err("Maximum number of pages should be always declared.")
 		);
 
-		prepare_test!(requested_maximum_valid,
+		prepare_test!(
+			requested_maximum_valid,
 			r#"
 			(module
 				(import "env" "memory" (memory 1 16))
@@ -720,7 +736,8 @@ mod tests {
 			Ok(_)
 		);
 
-		prepare_test!(requested_maximum_exceeds_configured_maximum,
+		prepare_test!(
+			requested_maximum_exceeds_configured_maximum,
 			r#"
 			(module
 				(import "env" "memory" (memory 1 17))
@@ -732,7 +749,8 @@ mod tests {
 			Err("Maximum number of pages should not exceed the configured maximum.")
 		);
 
-		prepare_test!(field_name_not_memory,
+		prepare_test!(
+			field_name_not_memory,
 			r#"
 			(module
 				(import "env" "forgetit" (memory 1 1))
@@ -744,7 +762,8 @@ mod tests {
 			Err("Memory import must have the field name 'memory'")
 		);
 
-		prepare_test!(multiple_memory_imports,
+		prepare_test!(
+			multiple_memory_imports,
 			r#"
 			(module
 				(import "env" "memory" (memory 1 1))
@@ -757,7 +776,8 @@ mod tests {
 			Err("Module is not valid")
 		);
 
-		prepare_test!(table_import,
+		prepare_test!(
+			table_import,
 			r#"
 			(module
 				(import "seal0" "table" (table 1 anyfunc))
@@ -769,7 +789,8 @@ mod tests {
 			Err("Cannot import tables")
 		);
 
-		prepare_test!(global_import,
+		prepare_test!(
+			global_import,
 			r#"
 			(module
 				(global $g (import "seal0" "global") i32)
@@ -784,7 +805,8 @@ mod tests {
 	mod tables {
 		use super::*;
 
-		prepare_test!(no_tables,
+		prepare_test!(
+			no_tables,
 			r#"
 			(module
 				(func (export "call"))
@@ -794,7 +816,8 @@ mod tests {
 			Ok(_)
 		);
 
-		prepare_test!(table_valid_size,
+		prepare_test!(
+			table_valid_size,
 			r#"
 			(module
 				(table 3 funcref)
@@ -806,7 +829,8 @@ mod tests {
 			Ok(_)
 		);
 
-		prepare_test!(table_too_big,
+		prepare_test!(
+			table_too_big,
 			r#"
 			(module
 				(table 4 funcref)
@@ -817,7 +841,8 @@ mod tests {
 			Err("table exceeds maximum size allowed")
 		);
 
-		prepare_test!(br_table_valid_size,
+		prepare_test!(
+			br_table_valid_size,
 			r#"
 			(module
 				(func (export "call"))
@@ -831,7 +856,8 @@ mod tests {
 			Ok(_)
 		);
 
-		prepare_test!(br_table_too_big,
+		prepare_test!(
+			br_table_too_big,
 			r#"
 			(module
 				(func (export "call"))
@@ -848,7 +874,8 @@ mod tests {
 	mod imports {
 		use super::*;
 
-		prepare_test!(can_import_legit_function,
+		prepare_test!(
+			can_import_legit_function,
 			r#"
 			(module
 				(import "seal0" "nop" (func (param i64)))
@@ -862,7 +889,8 @@ mod tests {
 
 		// even though gas is defined the contract can't import it since
 		// it is an implementation defined.
-		prepare_test!(can_not_import_gas_function,
+		prepare_test!(
+			can_not_import_gas_function,
 			r#"
 			(module
 				(import "seal0" "gas" (func (param i32)))
@@ -875,7 +903,8 @@ mod tests {
 		);
 
 		// memory is in "env" and not in "seal0"
-		prepare_test!(memory_not_in_seal0,
+		prepare_test!(
+			memory_not_in_seal0,
 			r#"
 			(module
 				(import "seal0" "memory" (memory 1 1))
@@ -888,7 +917,8 @@ mod tests {
 		);
 
 		// memory is in "env" and not in some arbitrary module
-		prepare_test!(memory_not_in_arbitrary_module,
+		prepare_test!(
+			memory_not_in_arbitrary_module,
 			r#"
 			(module
 				(import "any_module" "memory" (memory 1 1))
@@ -900,7 +930,8 @@ mod tests {
 			Err("Invalid module for imported memory")
 		);
 
-		prepare_test!(function_in_other_module_works,
+		prepare_test!(
+			function_in_other_module_works,
 			r#"
 			(module
 				(import "seal1" "nop" (func (param i32)))
@@ -913,7 +944,8 @@ mod tests {
 		);
 
 		// wrong signature
-		prepare_test!(wrong_signature,
+		prepare_test!(
+			wrong_signature,
 			r#"
 			(module
 				(import "seal0" "gas" (func (param i64)))
@@ -925,7 +957,8 @@ mod tests {
 			Err("module imports a non-existent function")
 		);
 
-		prepare_test!(unknown_func_name,
+		prepare_test!(
+			unknown_func_name,
 			r#"
 			(module
 				(import "seal0" "unknown_func" (func))
@@ -937,7 +970,8 @@ mod tests {
 			Err("module imports a non-existent function")
 		);
 
-		prepare_test!(seal_println_debug_disabled,
+		prepare_test!(
+			seal_println_debug_disabled,
 			r#"
 			(module
 				(import "seal0" "seal_println" (func $seal_println (param i32 i32)))
@@ -959,8 +993,9 @@ mod tests {
 					(func (export "call"))
 					(func (export "deploy"))
 				)
-				"#
-			).unwrap();
+				"#,
+			)
+			.unwrap();
 			let mut schedule = Schedule::default();
 			schedule.enable_println = true;
 			let r = do_preparation::<env::Test, crate::tests::Test>(wasm, &schedule);
@@ -971,7 +1006,8 @@ mod tests {
 	mod entrypoints {
 		use super::*;
 
-		prepare_test!(it_works,
+		prepare_test!(
+			it_works,
 			r#"
 			(module
 				(func (export "call"))
@@ -981,7 +1017,8 @@ mod tests {
 			Ok(_)
 		);
 
-		prepare_test!(omit_deploy,
+		prepare_test!(
+			omit_deploy,
 			r#"
 			(module
 				(func (export "call"))
@@ -990,7 +1027,8 @@ mod tests {
 			Err("deploy function isn't exported")
 		);
 
-		prepare_test!(omit_call,
+		prepare_test!(
+			omit_call,
 			r#"
 			(module
 				(func (export "deploy"))
@@ -1000,7 +1038,8 @@ mod tests {
 		);
 
 		// Try to use imported function as an entry point.
-		prepare_test!(try_sneak_export_as_entrypoint,
+		prepare_test!(
+			try_sneak_export_as_entrypoint,
 			r#"
 			(module
 				(import "seal0" "panic" (func))
@@ -1014,7 +1053,8 @@ mod tests {
 		);
 
 		// Try to use imported function as an entry point.
-		prepare_test!(try_sneak_export_as_global,
+		prepare_test!(
+			try_sneak_export_as_global,
 			r#"
 			(module
 				(func (export "deploy"))
@@ -1024,7 +1064,8 @@ mod tests {
 			Err("expected a function")
 		);
 
-		prepare_test!(wrong_signature,
+		prepare_test!(
+			wrong_signature,
 			r#"
 			(module
 				(func (export "deploy"))
@@ -1034,7 +1075,8 @@ mod tests {
 			Err("entry point has wrong signature")
 		);
 
-		prepare_test!(unknown_exports,
+		prepare_test!(
+			unknown_exports,
 			r#"
 			(module
 				(func (export "call"))
@@ -1045,7 +1087,8 @@ mod tests {
 			Err("unknown export: expecting only deploy and call functions")
 		);
 
-		prepare_test!(global_float,
+		prepare_test!(
+			global_float,
 			r#"
 			(module
 				(global $x f32 (f32.const 0))
@@ -1056,7 +1099,8 @@ mod tests {
 			Err("use of floating point type in globals is forbidden")
 		);
 
-		prepare_test!(local_float,
+		prepare_test!(
+			local_float,
 			r#"
 			(module
 				(func $foo (local f32))
@@ -1067,7 +1111,8 @@ mod tests {
 			Err("use of floating point type in locals is forbidden")
 		);
 
-		prepare_test!(param_float,
+		prepare_test!(
+			param_float,
 			r#"
 			(module
 				(func $foo (param f32))
@@ -1078,7 +1123,8 @@ mod tests {
 			Err("use of floating point type in function types is forbidden")
 		);
 
-		prepare_test!(result_float,
+		prepare_test!(
+			result_float,
 			r#"
 			(module
 				(func $foo (result f32) (f32.const 0))

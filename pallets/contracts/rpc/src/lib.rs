@@ -22,6 +22,7 @@ use std::sync::Arc;
 use codec::Codec;
 use jsonrpc_core::{Error, ErrorCode, Result};
 use jsonrpc_derive::rpc;
+use pallet_contracts_primitives::ContractExecResult;
 use pallet_contracts_primitives::RentProjection;
 use serde::{Deserialize, Serialize};
 use sp_api::ProvideRuntimeApi;
@@ -34,7 +35,6 @@ use sp_runtime::{
 	DispatchError,
 };
 use std::convert::{TryFrom, TryInto};
-use pallet_contracts_primitives::ContractExecResult;
 
 pub use pallet_contracts_rpc_runtime_api::ContractsApi as ContractsRuntimeApi;
 
@@ -313,7 +313,8 @@ mod tests {
 	#[test]
 	fn call_request_should_serialize_deserialize_properly() {
 		type Req = CallRequest<String>;
-		let req: Req = serde_json::from_str(r#"
+		let req: Req = serde_json::from_str(
+			r#"
 		{
 			"origin": "5CiPPseXPECbkjWCa6MnjNokrgYjMqmKndv2rSnekmSK2DjL",
 			"dest": "5DRakbLVnjVrW6niwLfHGW24EeCEvDAFGEXrtaYS5M4ynoom",
@@ -321,7 +322,9 @@ mod tests {
 			"gasLimit": 1000000000000,
 			"inputData": "0x8c97db39"
 		}
-		"#).unwrap();
+		"#,
+		)
+		.unwrap();
 		assert_eq!(req.gas_limit.into_u256(), U256::from(0xe8d4a51000u64));
 		assert_eq!(req.value.into_u256(), U256::from(1234567890987654321u128));
 	}
@@ -333,7 +336,9 @@ mod tests {
 			let actual = serde_json::to_string(&res).unwrap();
 			assert_eq!(actual, expected);
 		}
-		test(r#"{"gasConsumed":5000,"debugMessage":"helpOk","result":{"Ok":{"flags":5,"data":"0x1234"}}}"#);
+		test(
+			r#"{"gasConsumed":5000,"debugMessage":"helpOk","result":{"Ok":{"flags":5,"data":"0x1234"}}}"#,
+		);
 		test(r#"{"gasConsumed":3400,"debugMessage":"helpErr","result":{"Err":"BadOrigin"}}"#);
 	}
 }

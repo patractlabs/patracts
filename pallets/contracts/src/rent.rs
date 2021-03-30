@@ -18,22 +18,21 @@
 //! A module responsible for computing the right amount of weight and charging it.
 
 use crate::{
-	AliveContractInfo, BalanceOf, ContractInfo, ContractInfoOf, Pallet, Event,
-	TombstoneContractInfo, Config, CodeHash, Error,
-	storage::Storage, wasm::PrefabWasmModule, exec::Executable,
+	exec::Executable, storage::Storage, wasm::PrefabWasmModule, AliveContractInfo, BalanceOf,
+	CodeHash, Config, ContractInfo, ContractInfoOf, Error, Event, Pallet, TombstoneContractInfo,
 };
-use sp_std::prelude::*;
-use sp_io::hashing::blake2_256;
-use sp_core::crypto::UncheckedFrom;
 use frame_support::{
 	storage::child,
 	traits::{Currency, ExistenceRequirement, Get, OnUnbalanced, WithdrawReasons},
 };
 use pallet_contracts_primitives::{ContractAccessError, RentProjection, RentProjectionResult};
+use sp_core::crypto::UncheckedFrom;
+use sp_io::hashing::blake2_256;
 use sp_runtime::{
-	DispatchError,
 	traits::{Bounded, CheckedDiv, CheckedMul, SaturatedConversion, Saturating, Zero},
+	DispatchError,
 };
+use sp_std::prelude::*;
 
 /// The amount to charge.
 ///
@@ -105,8 +104,7 @@ where
 		let uncovered_by_balance = T::DepositPerStorageByte::get()
 			.saturating_mul(contract.storage_size.saturating_add(code_size_share).into())
 			.saturating_add(
-				T::DepositPerStorageItem::get()
-					.saturating_mul(contract.pair_count.into())
+				T::DepositPerStorageItem::get().saturating_mul(contract.pair_count.into()),
 			)
 			.saturating_add(T::DepositPerContract::get())
 			.saturating_sub(*free_balance);
@@ -256,9 +254,7 @@ where
 				}
 
 				// Note: this operation is heavy.
-				let child_storage_root = child::root(
-					&alive_contract_info.child_trie_info(),
-				);
+				let child_storage_root = child::root(&alive_contract_info.child_trie_info());
 
 				let tombstone = <TombstoneContractInfo<T>>::new(
 					&child_storage_root[..],
@@ -270,17 +266,19 @@ where
 				<Pallet<T>>::deposit_event(Event::Evicted(account.clone()));
 				Ok(None)
 			}
-			(Verdict::Evict { amount: _ }, None) => {
-				Ok(None)
-			}
-			(Verdict::Exempt, _) =>  {
+			(Verdict::Evict { amount: _ }, None) => Ok(None),
+			(Verdict::Exempt, _) => {
 				let contract = ContractInfo::Alive(AliveContractInfo::<T> {
 					deduct_block: current_block_number,
 					..alive_contract_info
 				});
 				<ContractInfoOf<T>>::insert(account, &contract);
-				Ok(Some(contract.get_alive().expect("We just constructed it as alive. qed")))
-			},
+				Ok(Some(
+					contract
+						.get_alive()
+						.expect("We just constructed it as alive. qed"),
+				))
+			}
 			(Verdict::Charge { amount }, _) => {
 				let contract = ContractInfo::Alive(AliveContractInfo::<T> {
 					rent_allowance: alive_contract_info.rent_allowance - amount.peek(),
@@ -290,7 +288,11 @@ where
 				});
 				<ContractInfoOf<T>>::insert(account, &contract);
 				amount.withdraw(account);
-				Ok(Some(contract.get_alive().expect("We just constructed it as alive. qed")))
+				Ok(Some(
+					contract
+						.get_alive()
+						.expect("We just constructed it as alive. qed"),
+				))
 			}
 		}
 	}
@@ -359,7 +361,11 @@ where
 					.unwrap_or_else(|| <BalanceOf<T>>::zero())
 					.saturating_add(contract.rent_payed);
 				Self::enact_verdict(
-					account, contract, current_block_number, verdict, Some(module),
+					account,
+					contract,
+					current_block_number,
+					verdict,
+					Some(module),
 				)?;
 				Ok((Some(rent_payed), code_len))
 			}
@@ -378,9 +384,7 @@ where
 	/// NOTE that this is not a side-effect free function! It will actually collect rent and then
 	/// compute the projection. This function is only used for implementation of an RPC method through
 	/// `RuntimeApi` meaning that the changes will be discarded anyway.
-	pub fn compute_projection(
-		account: &T::AccountId,
-	) -> RentProjectionResult<T::BlockNumber> {
+	pub fn compute_projection(account: &T::AccountId) -> RentProjectionResult<T::BlockNumber> {
 		use ContractAccessError::IsTombstone;
 
 		let contract_info = <ContractInfoOf<T>>::get(account);
@@ -400,7 +404,11 @@ where
 			code_size,
 		);
 		let new_contract_info = Self::enact_verdict(
-			account, alive_contract_info, current_block_number, verdict, Some(module),
+			account,
+			alive_contract_info,
+			current_block_number,
+			verdict,
+			Some(module),
 		);
 
 		// Check what happened after enaction of the verdict.
@@ -412,21 +420,21 @@ where
 		// Compute how much would the fee per block be with the *updated* balance.
 		let total_balance = T::Currency::total_balance(account);
 		let free_balance = T::Currency::free_balance(account);
-		let fee_per_block = Self::compute_fee_per_block(
-			&free_balance, &alive_contract_info, code_size,
-		);
+		let fee_per_block =
+			Self::compute_fee_per_block(&free_balance, &alive_contract_info, code_size);
 		if fee_per_block.is_zero() {
 			return Ok(RentProjection::NoEviction);
 		}
 
 		// Then compute how much the contract will sustain under these circumstances.
-		let rent_budget = Self::rent_budget(&total_balance, &free_balance, &alive_contract_info).expect(
-			"the contract exists and in the alive state;
+		let rent_budget = Self::rent_budget(&total_balance, &free_balance, &alive_contract_info)
+			.expect(
+				"the contract exists and in the alive state;
 			the updated balance must be greater than subsistence deposit;
 			this function doesn't return `None`;
 			qed
 			",
-		);
+			);
 		let blocks_left = match rent_budget.checked_div(&fee_per_block) {
 			Some(blocks_left) => blocks_left,
 			None => {
@@ -495,7 +503,8 @@ where
 		// fail later due to tombstones not matching. This is because the restoration
 		// is always called from a contract and therefore in a storage transaction.
 		// The failure of this function will lead to this transaction's rollback.
-		let bytes_taken: u32 = delta.iter()
+		let bytes_taken: u32 = delta
+			.iter()
 			.filter_map(|key| {
 				let key = blake2_256(key);
 				child::get_raw(&child_trie_info, &key).map(|value| {
@@ -520,14 +529,17 @@ where
 
 		<ContractInfoOf<T>>::remove(&origin);
 		let tombstone_code_len = E::remove_user(origin_contract.code_hash);
-		<ContractInfoOf<T>>::insert(&dest, ContractInfo::Alive(AliveContractInfo::<T> {
-			code_hash,
-			rent_allowance,
-			rent_payed: <BalanceOf<T>>::zero(),
-			deduct_block: current_block,
-			last_write,
-			.. origin_contract
-		}));
+		<ContractInfoOf<T>>::insert(
+			&dest,
+			ContractInfo::Alive(AliveContractInfo::<T> {
+				code_hash,
+				rent_allowance,
+				rent_payed: <BalanceOf<T>>::zero(),
+				deduct_block: current_block,
+				last_write,
+				..origin_contract
+			}),
+		);
 
 		let origin_free_balance = T::Currency::free_balance(&origin);
 		T::Currency::make_free_balance_be(&origin, <BalanceOf<T>>::zero());

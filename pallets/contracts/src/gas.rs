@@ -16,16 +16,16 @@
 // limitations under the License.
 
 use crate::{Config, Error};
-use sp_std::marker::PhantomData;
-use sp_runtime::traits::Zero;
 use frame_support::{
 	dispatch::{
-		DispatchResultWithPostInfo, PostDispatchInfo, DispatchErrorWithPostInfo, DispatchError,
+		DispatchError, DispatchErrorWithPostInfo, DispatchResultWithPostInfo, PostDispatchInfo,
 	},
 	weights::Weight,
 };
 use pallet_contracts_primitives::ExecError;
 use sp_core::crypto::UncheckedFrom;
+use sp_runtime::traits::Zero;
+use sp_std::marker::PhantomData;
 
 #[cfg(test)]
 use std::{any::Any, fmt::Debug};
@@ -90,7 +90,7 @@ pub struct GasMeter<T: Config> {
 
 impl<T: Config> GasMeter<T>
 where
-	T::AccountId: UncheckedFrom<<T as frame_system::Config>::Hash> + AsRef<[u8]>
+	T::AccountId: UncheckedFrom<<T as frame_system::Config>::Hash> + AsRef<[u8]>,
 {
 	pub fn new(gas_limit: Weight) -> Self {
 		GasMeter {
@@ -152,7 +152,9 @@ where
 		metadata: &Tok::Metadata,
 		token: Tok,
 	) {
-		let adjustment = charged_amount.0.saturating_sub(token.calculate_amount(metadata));
+		let adjustment = charged_amount
+			.0
+			.saturating_sub(token.calculate_amount(metadata));
 		self.gas_left = self.gas_left.saturating_add(adjustment).min(self.gas_limit);
 	}
 
@@ -205,7 +207,8 @@ where
 
 	/// Turn this GasMeter into a DispatchResult that contains the actually used gas.
 	pub fn into_dispatch_result<R, E>(
-		self, result: Result<R, E>,
+		self,
+		result: Result<R, E>,
 		base_weight: Weight,
 	) -> DispatchResultWithPostInfo
 	where
@@ -218,7 +221,10 @@ where
 
 		result
 			.map(|_| post_info)
-			.map_err(|e| DispatchErrorWithPostInfo { post_info, error: e.into().error })
+			.map_err(|e| DispatchErrorWithPostInfo {
+				post_info,
+				error: e.into().error,
+			})
 	}
 
 	#[cfg(test)]
@@ -274,7 +280,9 @@ mod tests {
 	struct SimpleToken(u64);
 	impl Token<Test> for SimpleToken {
 		type Metadata = ();
-		fn calculate_amount(&self, _metadata: &()) -> u64 { self.0 }
+		fn calculate_amount(&self, _metadata: &()) -> u64 {
+			self.0
+		}
 	}
 
 	struct MultiplierTokenMetadata {
@@ -303,8 +311,10 @@ mod tests {
 	fn simple() {
 		let mut gas_meter = GasMeter::<Test>::new(50000);
 
-		let result = gas_meter
-			.charge(&MultiplierTokenMetadata { multiplier: 3 }, MultiplierToken(10));
+		let result = gas_meter.charge(
+			&MultiplierTokenMetadata { multiplier: 3 },
+			MultiplierToken(10),
+		);
 		assert!(!result.is_err());
 
 		assert_eq!(gas_meter.gas_left(), 49_970);
@@ -315,7 +325,10 @@ mod tests {
 		let mut gas_meter = GasMeter::<Test>::new(50000);
 		assert!(!gas_meter.charge(&(), SimpleToken(1)).is_err());
 		assert!(!gas_meter
-			.charge(&MultiplierTokenMetadata { multiplier: 3 }, MultiplierToken(10))
+			.charge(
+				&MultiplierTokenMetadata { multiplier: 3 },
+				MultiplierToken(10)
+			)
 			.is_err());
 
 		let mut tokens = gas_meter.tokens()[0..2].iter();
@@ -344,7 +357,6 @@ mod tests {
 		// The gas meter is emptied at this moment, so this should also fail.
 		assert!(gas_meter.charge(&(), SimpleToken(1)).is_err());
 	}
-
 
 	// Charging the exact amount that the user paid for should be
 	// possible.

@@ -214,15 +214,15 @@ macro_rules! define_env {
 
 #[cfg(test)]
 mod tests {
+	use crate::{
+		exec::Ext,
+		wasm::{runtime::TrapReason, tests::MockExt, Runtime},
+		Weight,
+	};
 	use parity_wasm::elements::FunctionType;
 	use parity_wasm::elements::ValueType;
 	use sp_runtime::traits::Zero;
 	use sp_sandbox::{ReturnValue, Value};
-	use crate::{
-		Weight,
-		wasm::{Runtime, runtime::TrapReason, tests::MockExt},
-		exec::Ext,
-	};
 
 	struct TestRuntime {
 		value: u32,
@@ -293,8 +293,10 @@ mod tests {
 				Err(TrapReason::Termination)
 			}
 		});
-		let _f: fn(&mut Runtime<MockExt>, &[sp_sandbox::Value])
-			-> Result<sp_sandbox::ReturnValue, sp_sandbox::HostError> = seal_gas::<MockExt>;
+		let _f: fn(
+			&mut Runtime<MockExt>,
+			&[sp_sandbox::Value],
+		) -> Result<sp_sandbox::ReturnValue, sp_sandbox::HostError> = seal_gas::<MockExt>;
 	}
 
 	#[test]
@@ -347,11 +349,15 @@ mod tests {
 			},
 		);
 
-		assert!(
-			Env::can_satisfy(b"seal0", b"seal_gas",&FunctionType::new(vec![ValueType::I32], None))
-		);
-		assert!(
-			!Env::can_satisfy(b"seal0", b"not_exists", &FunctionType::new(vec![], None))
-		);
+		assert!(Env::can_satisfy(
+			b"seal0",
+			b"seal_gas",
+			&FunctionType::new(vec![ValueType::I32], None)
+		));
+		assert!(!Env::can_satisfy(
+			b"seal0",
+			b"not_exists",
+			&FunctionType::new(vec![], None)
+		));
 	}
 }

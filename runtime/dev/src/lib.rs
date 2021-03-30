@@ -8,7 +8,7 @@ use sp_runtime::{
 	create_runtime_str, generic, impl_opaque_keys,
 	traits::{AccountIdLookup, BlakeTwo256, Block as BlockT, IdentifyAccount, Saturating, Verify},
 	transaction_validity::{TransactionSource, TransactionValidity},
-	ApplyExtrinsicResult, MultiSignature, Perbill,
+	ApplyExtrinsicResult, ModuleId, MultiSignature, Perbill,
 };
 use sp_std::prelude::*;
 #[cfg(feature = "std")]
@@ -250,6 +250,7 @@ parameter_types! {
 	pub const SignedClaimHandicap: u32 = 2;
 	pub const MaxDepth: u32 = 32;
 	pub const MaxValueSize: u32 = 16 * 1024;
+	pub const ContractsModuleId: ModuleId = ModuleId(*b"py/contr");
 	// The lazy deletion runs inside on_initialize.
 	pub DeletionWeightLimit: Weight = AVERAGE_ON_INITIALIZE_RATIO *
 		RuntimeBlockWeights::get().max_block;
@@ -283,6 +284,7 @@ impl pallet_contracts::Config for Runtime {
 	type ChainExtension = ();
 	type DeletionQueueDepth = DeletionQueueDepth;
 	type DeletionWeightLimit = DeletionWeightLimit;
+	type ModuleId = ContractsModuleId;
 }
 
 impl pallet_sudo::Config for Runtime {

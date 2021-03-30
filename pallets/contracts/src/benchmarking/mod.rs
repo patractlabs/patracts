@@ -22,28 +22,28 @@
 mod code;
 mod sandbox;
 
+use self::{
+	code::{
+		body::{self, DynInstr::*},
+		DataSegment, ImportedFunction, ImportedMemory, ModuleDefinition, WasmModule,
+	},
+	sandbox::Sandbox,
+};
 use crate::{
-	*, Pallet as Contracts,
 	exec::StorageKey,
 	rent::Rent,
 	schedule::{API_BENCHMARK_BATCH_SIZE, INSTR_BENCHMARK_BATCH_SIZE},
 	storage::Storage,
-};
-use self::{
-	code::{
-		body::{self, DynInstr::*},
-		ModuleDefinition, DataSegment, ImportedMemory, ImportedFunction, WasmModule,
-	},
-	sandbox::Sandbox,
+	Pallet as Contracts, *,
 };
 use codec::Encode;
-use frame_benchmarking::{benchmarks, account, whitelisted_caller, impl_benchmark_test_suite};
-use frame_system::{Pallet as System, RawOrigin};
-use parity_wasm::elements::{Instruction, ValueType, BlockType};
-use sp_runtime::traits::{Hash, Bounded, Zero};
-use sp_std::{default::Default, convert::{TryInto}, vec::Vec, vec};
-use pallet_contracts_primitives::RentProjection;
+use frame_benchmarking::{account, benchmarks, impl_benchmark_test_suite, whitelisted_caller};
 use frame_support::weights::Weight;
+use frame_system::{Pallet as System, RawOrigin};
+use pallet_contracts_primitives::RentProjection;
+use parity_wasm::elements::{BlockType, Instruction, ValueType};
+use sp_runtime::traits::{Bounded, Hash, Zero};
+use sp_std::{convert::TryInto, default::Default, vec, vec::Vec};
 
 /// How many batches we do per API benchmark.
 const API_BENCHMARK_BATCHES: u32 = 20;
@@ -74,7 +74,7 @@ impl Endow {
 	/// The maximum amount of balance a caller can transfer without being brought below
 	/// the existential deposit. This assumes that every caller is funded with the amount
 	/// returned by `caller_funding`.
-	fn max<T:Config>() -> BalanceOf<T> {
+	fn max<T: Config>() -> BalanceOf<T> {
 		caller_funding::<T>().saturating_sub(T::Currency::minimum_balance())
 	}
 }
@@ -109,8 +109,7 @@ where
 		module: WasmModule<T>,
 		data: Vec<u8>,
 		endowment: Endow,
-	) -> Result<Contract<T>, &'static str>
-	{
+	) -> Result<Contract<T>, &'static str> {
 		let (storage_size, endowment) = match endowment {
 			Endow::CollectRent => {
 				// storage_size cannot be zero because otherwise a contract that is just above
@@ -125,7 +124,7 @@ where
 					.saturating_add(T::DepositPerContract::get());
 
 				(storage_size, endowment)
-			},
+			}
 			Endow::Max => (0u32.into(), Endow::max::<T>()),
 		};
 		T::Currency::make_free_balance_be(&caller, caller_funding::<T>());
@@ -181,7 +180,8 @@ where
 
 	/// Get the `AliveContractInfo` of the `addr` or an error if it is no longer alive.
 	fn address_alive_info(addr: &T::AccountId) -> Result<AliveContractInfo<T>, &'static str> {
-		ContractInfoOf::<T>::get(addr).and_then(|c| c.get_alive())
+		ContractInfoOf::<T>::get(addr)
+			.and_then(|c| c.get_alive())
 			.ok_or("Expected contract to be alive at this point.")
 	}
 
@@ -192,7 +192,8 @@ where
 
 	/// Return an error if this contract is no tombstone.
 	fn ensure_tombstone(&self) -> Result<(), &'static str> {
-		ContractInfoOf::<T>::get(&self.account_id).and_then(|c| c.get_tombstone())
+		ContractInfoOf::<T>::get(&self.account_id)
+			.and_then(|c| c.get_tombstone())
 			.ok_or("Expected contract to be a tombstone at this point.")
 			.map(|_| ())
 	}
@@ -242,9 +243,9 @@ where
 	}
 
 	/// Increase the system block number so that this contract is eligible for eviction.
-	fn set_block_num_for_eviction(&self) -> Result<(), &'static str>  {
+	fn set_block_num_for_eviction(&self) -> Result<(), &'static str> {
 		System::<T>::set_block_number(
-			self.contract.eviction_at()? + T::SignedClaimHandicap::get() + 5u32.into()
+			self.contract.eviction_at()? + T::SignedClaimHandicap::get() + 5u32.into(),
 		);
 		Ok(())
 	}
@@ -260,15 +261,17 @@ where
 /// Generate `stor_num` storage items. Each has the size `stor_size`.
 fn create_storage<T: Config>(
 	stor_num: u32,
-	stor_size: u32
+	stor_size: u32,
 ) -> Result<Vec<(StorageKey, Vec<u8>)>, &'static str> {
-	(0..stor_num).map(|i| {
-		let hash = T::Hashing::hash_of(&i)
-			.as_ref()
-			.try_into()
-			.map_err(|_| "Hash too big for storage key")?;
-		Ok((hash, vec![42u8; stor_size as usize]))
-	}).collect::<Result<Vec<_>, &'static str>>()
+	(0..stor_num)
+		.map(|i| {
+			let hash = T::Hashing::hash_of(&i)
+				.as_ref()
+				.try_into()
+				.map_err(|_| "Hash too big for storage key")?;
+			Ok((hash, vec![42u8; stor_size as usize]))
+		})
+		.collect::<Result<Vec<_>, &'static str>>()
 }
 
 /// The funding that each account that either calls or instantiates contracts is funded with.
