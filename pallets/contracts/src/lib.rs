@@ -90,8 +90,10 @@
 #[macro_use]
 mod gas;
 mod benchmarking;
+mod deposit;
 mod exec;
 mod migration;
+#[allow(unused)]
 mod rent;
 mod schedule;
 mod storage;
@@ -104,9 +106,9 @@ pub mod weights;
 mod tests;
 
 use crate::{
+	deposit::Deposit,
 	exec::{Executable, ExecutionContext},
 	gas::GasMeter,
-	rent::Rent,
 	storage::{AliveContractInfo, ContractInfo, DeletedContract, Storage, TombstoneContractInfo},
 	wasm::PrefabWasmModule,
 	weights::WeightInfo,
@@ -122,7 +124,7 @@ use pallet_contracts_primitives::{
 };
 use sp_core::crypto::UncheckedFrom;
 use sp_runtime::{
-	traits::{Convert, Hash, Saturating, StaticLookup, Zero},
+	traits::{AccountIdConversion, Convert, Hash, Saturating, StaticLookup, Zero},
 	ModuleId, Perbill,
 };
 use sp_std::prelude::*;
@@ -186,12 +188,14 @@ pub mod pallet {
 		/// then a contract with 1,000,000 BU that uses 1,000 bytes of storage would pay no rent.
 		/// But if the balance reduced to 500,000 BU and the storage stayed the same at 1,000,
 		/// then it would pay 500 BU/day.
+		// TODO 记录到合约中, 因为未来会更新
 		#[pallet::constant]
 		type DepositPerStorageByte: Get<BalanceOf<Self>>;
 
 		/// The balance a contract needs to deposit per storage item to stay alive indefinitely.
 		///
 		/// It works the same as [`Self::DepositPerStorageByte`] but for storage items.
+		// TODO 记录到合约中, 因为未来会更新
 		#[pallet::constant]
 		type DepositPerStorageItem: Get<BalanceOf<Self>>;
 
@@ -217,7 +221,7 @@ pub mod pallet {
 		type MaxValueSize: Get<u32>;
 
 		/// The contract's module id, used for deriving its sovereign account ID.
-		// #[pallet::constant]
+		#[pallet::constant]
 		type ModuleId: Get<ModuleId>;
 
 		/// Used to answer contracts' queries regarding the current weight price. This is **not**
@@ -442,7 +446,7 @@ pub mod pallet {
 			};
 
 			// If poking the contract has lead to eviction of the contract, give out the rewards.
-			match Rent::<T, PrefabWasmModule<T>>::try_eviction(&dest, handicap)? {
+			match Deposit::<T, PrefabWasmModule<T>>::try_eviction(&dest, handicap)? {
 				(Some(rent_payed), code_len) => T::Currency::deposit_into_existing(
 					&rewarded,
 					T::SurchargeReward::get().min(rent_payed),
@@ -653,8 +657,18 @@ pub mod pallet {
 	}
 
 	#[pallet::genesis_build]
-	impl<T: Config> GenesisBuild<T> for GenesisConfig<T> {
+	impl<T: Config> GenesisBuild<T> for GenesisConfig<T>
+	where
+		T::AccountId: UncheckedFrom<T::Hash> + AsRef<[u8]>,
+	{
 		fn build(&self) {
+			// Create contracts deposit pool account
+			let account_id = Pallet::<T>::account_id();
+			let min = T::Currency::minimum_balance();
+			if T::Currency::free_balance(&account_id) < min {
+				let _ = T::Currency::make_free_balance_be(&account_id, min);
+			}
+
 			<CurrentSchedule<T>>::put(&self.current_schedule);
 		}
 	}
@@ -702,7 +716,7 @@ where
 	/// Query how many blocks the contract stays alive given that the amount endowment
 	/// and consumed storage does not change.
 	pub fn rent_projection(address: T::AccountId) -> RentProjectionResult<T::BlockNumber> {
-		Rent::<T, PrefabWasmModule<T>>::compute_projection(&address)
+		Deposit::<T, PrefabWasmModule<T>>::compute_projection(&address)
 	}
 
 	/// Determine the address of a contract,
@@ -768,5 +782,24 @@ where
 		schedule: &Schedule<T>,
 	) -> frame_support::dispatch::DispatchResult {
 		self::wasm::reinstrument(module, schedule)
+	}
+
+	/// The account ID of the contracts deposit pool.
+	///
+	/// This actually does computation. If you need to keep using it, then make sure you cache the
+	/// value and only call this once.
+	pub fn account_id() -> T::AccountId {
+		T::ModuleId::get().into_account()
+	}
+
+	/// Return the deposit pool account and amount of money in the deposit pool.
+	// The existential deposit is not part of the deposit pool so deposit pool account never gets deleted.
+	#[allow(unused)]
+	pub fn deposit_pool() -> (T::AccountId, BalanceOf<T>) {
+		let account_id = Self::account_id();
+		let balance =
+			T::Currency::free_balance(&account_id).saturating_sub(T::Currency::minimum_balance());
+
+		(account_id, balance)
 	}
 }

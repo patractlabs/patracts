@@ -262,6 +262,7 @@ impl pallet_sudo::Config for Runtime {
 parameter_types! {
 	pub TombstoneDeposit: Balance = 0;
 	pub DepositPerContract: Balance = TombstoneDeposit::get();
+	// TODO
 	pub const DepositPerStorageByte: Balance = 0;
 	pub const DepositPerStorageItem: Balance = 0;
 	pub RentFraction: Perbill = Perbill::from_rational(1u32, 30 * DAYS);

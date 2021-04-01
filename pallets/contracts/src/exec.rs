@@ -16,6 +16,7 @@
 // limitations under the License.
 
 use crate::{
+	deposit::Deposit,
 	gas::GasMeter,
 	rent::Rent,
 	storage::{self, Storage},
@@ -357,6 +358,7 @@ pub trait Executable<T: Config>: Sized {
 
 pub struct ExecutionContext<'a, T: Config + 'a, E> {
 	caller: Option<&'a ExecutionContext<'a, T, E>>,
+	tx_origin: T::AccountId,
 	self_account: T::AccountId,
 	self_trie_id: Option<TrieId>,
 	depth: usize,
@@ -379,6 +381,7 @@ where
 	pub fn top_level(origin: T::AccountId, schedule: &'a Schedule<T>) -> Self {
 		ExecutionContext {
 			caller: None,
+			tx_origin: origin.clone(),
 			self_trie_id: None,
 			self_account: origin,
 			depth: 0,
@@ -396,6 +399,7 @@ where
 	) -> ExecutionContext<'b, T, E> {
 		ExecutionContext {
 			caller: Some(self),
+			tx_origin: self.tx_origin.clone(),
 			self_trie_id: Some(trie_id),
 			self_account: dest,
 			depth: self.depth + 1,
@@ -422,34 +426,35 @@ where
 			return Err((Error::<T>::MaxCallDepthReached.into(), 0));
 		}
 
-		let contract = <ContractInfoOf<T>>::get(&dest)
+		let initial_contract = <ContractInfoOf<T>>::get(&dest)
 			.and_then(|contract| contract.get_alive())
 			.ok_or((Error::<T>::NotCallable.into(), 0))?;
 
-		let executable = E::from_storage(contract.code_hash, &self.schedule, gas_meter)
+		let executable = E::from_storage(initial_contract.code_hash, &self.schedule, gas_meter)
 			.map_err(|e| (e.into(), 0))?;
 		let code_len = executable.code_len();
 
-		// This charges the rent and denies access to a contract that is in need of
-		// eviction by returning `None`. We cannot evict eagerly here because those
-		// changes would be rolled back in case this contract is called by another
-		// contract.
-		// See: https://github.com/paritytech/substrate/issues/6439#issuecomment-648754324
-		let contract = Rent::<T, E>::charge(&dest, contract, executable.occupied_storage())
-			.map_err(|e| (e.into(), code_len))?
-			.ok_or((Error::<T>::NotCallable.into(), code_len))?;
+		// // This charges the rent and denies access to a contract that is in need of
+		// // eviction by returning `None`. We cannot evict eagerly here because those
+		// // changes would be rolled back in case this contract is called by another
+		// // contract.
+		// // See: https://github.com/paritytech/substrate/issues/6439#issuecomment-648754324
+		// let contract = Rent::<T, E>::charge(&dest, contract, executable.occupied_storage())
+		//     .map_err(|e| (e.into(), code_len))?
+		//     .ok_or((Error::<T>::NotCallable.into(), code_len))?;
 
 		let transactor_kind = self.transactor_kind();
 		let caller = self.self_account.clone();
+		let tx_origin = self.tx_origin.clone();
 
 		let result = self
-			.with_nested_context(dest.clone(), contract.trie_id.clone(), |nested| {
+			.with_nested_context(dest.clone(), initial_contract.trie_id.clone(), |nested| {
 				if value > BalanceOf::<T>::zero() {
 					transfer::<T>(TransferCause::Call, transactor_kind, &caller, &dest, value)?
 				}
 
 				let call_context =
-					nested.new_call_context(caller, &dest, value, &contract, &executable);
+					nested.new_call_context(caller, &dest, value, &initial_contract, &executable);
 
 				let output = executable
 					.execute(call_context, &ExportedFunction::Call, input_data, gas_meter)
@@ -457,6 +462,32 @@ where
 						error: e.error,
 						origin: ErrorOrigin::Callee,
 					})?;
+
+				// We need to re-fetch the contract because changes are written to storage
+				// eagerly during execution.
+				let contract = <ContractInfoOf<T>>::get(&dest)
+					.and_then(|contract| contract.get_alive())
+					.ok_or(Error::<T>::NotCallable)?;
+
+				let deposit_limit = T::WeightPrice::convert(gas_meter.gas_left());
+				log::debug!(target: "runtime::contracts", "gas spent: {:?}, gas left: {:?}, deposit_limit: {:?}",
+                            gas_meter.gas_spent(), gas_meter.gas_left(), deposit_limit);
+
+				// This charges the rent and denies access to a contract that is in need of
+				// eviction by returning `None`. We cannot evict eagerly here because those
+				// changes would be rolled back in case this contract is called by another
+				// contract.
+				// See: https://github.com/paritytech/substrate/issues/6439#issuecomment-648754324
+				Deposit::<T, E>::charge(
+					&tx_origin,
+					&dest,
+					initial_contract,
+					contract,
+					&deposit_limit,
+					None,
+				)?
+				.ok_or(Error::<T>::NotCallable)?;
+
 				Ok(output)
 			})
 			.map_err(|e| (e, code_len))?;
@@ -477,6 +508,7 @@ where
 
 		let transactor_kind = self.transactor_kind();
 		let caller = self.self_account.clone();
+		let tx_origin = self.tx_origin.clone();
 		let dest = Contracts::<T>::contract_address(&caller, executable.code_hash(), salt);
 
 		let output = frame_support::storage::with_transaction(|| {
@@ -484,7 +516,7 @@ where
 			let dest_trie_id = Storage::<T>::generate_trie_id(&dest);
 
 			let output = self.with_nested_context(dest.clone(), dest_trie_id, |nested| {
-				let contract = Storage::<T>::place_contract(
+				let initial_contract = Storage::<T>::place_contract(
 					&dest,
 					nested
 						.self_trie_id
@@ -493,27 +525,27 @@ where
 					executable.code_hash().clone(),
 				)?;
 
-				// Send funds unconditionally here. If the `endowment` is below existential_deposit
-				// then error will be returned here.
-				transfer::<T>(
-					TransferCause::Instantiate,
-					transactor_kind,
-					&caller,
-					&dest,
-					endowment,
-				)?;
+				// // Send funds unconditionally here. If the `endowment` is below existential_deposit
+				// // then error will be returned here.
+				// transfer::<T>(
+				// 	TransferCause::Instantiate,
+				// 	transactor_kind,
+				// 	&caller,
+				// 	&dest,
+				// 	endowment,
+				// )?;
 
 				// Cache the value before calling into the constructor because that
 				// consumes the value. If the constructor creates additional contracts using
 				// the same code hash we still charge the "1 block rent" as if they weren't
 				// spawned. This is OK as overcharging is always safe.
-				let occupied_storage = executable.occupied_storage();
+				let occupied_storage = executable.aggregate_code_len();
 
 				let call_context = nested.new_call_context(
 					caller.clone(),
 					&dest,
 					endowment,
-					&contract,
+					&initial_contract,
 					&executable,
 				);
 
@@ -535,13 +567,35 @@ where
 					.and_then(|contract| contract.get_alive())
 					.ok_or(Error::<T>::NotCallable)?;
 
+				let deposit_limit = T::WeightPrice::convert(gas_meter.gas_left())
+					.saturating_sub(Contracts::<T>::subsistence_threshold());
+				log::debug!(target: "runtime::contracts", "gas spent: {:?}, gas left: {:?}, deposit_limit: {:?}",
+                            gas_meter.gas_spent(), gas_meter.gas_left(), deposit_limit);
+
 				// Collect the rent for the first block to prevent the creation of very large
 				// contracts that never intended to pay for even one block.
 				// This also makes sure that it is above the subsistence threshold
 				// in order to keep up the guarantuee that we always leave a tombstone behind
 				// with the exception of a contract that called `seal_terminate`.
-				Rent::<T, E>::charge(&dest, contract, occupied_storage)?
-					.ok_or(Error::<T>::NewContractNotFunded)?;
+				Deposit::<T, E>::charge(
+					&tx_origin,
+					&dest,
+					initial_contract,
+					contract,
+					&deposit_limit,
+					Some(occupied_storage),
+				)?
+				.ok_or(Error::<T>::NewContractNotFunded)?;
+
+				// Send funds unconditionally here. If the tx origin balance is below existential_deposit
+				// then error will be returned here.
+				transfer::<T>(
+					TransferCause::Instantiate,
+					transactor_kind,
+					&tx_origin,
+					&dest,
+					Contracts::<T>::subsistence_threshold(),
+				)?;
 
 				// Deposit an instantiation event.
 				deposit_event::<T>(vec![], Event::Instantiated(caller.clone(), dest.clone()));
@@ -794,6 +848,7 @@ where
 		self.ctx.call(to.clone(), value, gas_meter, input_data)
 	}
 
+	// Note: deposit disable
 	fn restore_to(
 		&mut self,
 		dest: AccountIdOf<Self::T>,
