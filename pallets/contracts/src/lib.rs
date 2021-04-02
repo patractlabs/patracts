@@ -105,6 +105,7 @@ pub mod weights;
 #[cfg(test)]
 mod tests;
 
+pub use crate::{deposit::ChargeDepositPayment, pallet::*, schedule::Schedule};
 use crate::{
 	deposit::Deposit,
 	exec::{Executable, ExecutionContext},
@@ -113,7 +114,6 @@ use crate::{
 	wasm::PrefabWasmModule,
 	weights::WeightInfo,
 };
-pub use crate::{pallet::*, schedule::Schedule};
 use frame_support::{
 	traits::{Currency, Get, OnUnbalanced, Randomness, Time},
 	weights::{PostDispatchInfo, Weight, WithPostDispatchInfo},
@@ -640,6 +640,13 @@ pub mod pallet {
 	/// stored in said trie. Therefore this operation is performed lazily in `on_initialize`.
 	#[pallet::storage]
 	pub(crate) type DeletionQueue<T: Config> = StorageValue<_, Vec<DeletedContract>, ValueQuery>;
+
+	/// Payment/refund deposit to account that instantiate/call contract and add/minus contract storage.
+	///
+	/// A mapping between an tx origin with nonce and contract deposit value that pay/refund to tx origin.
+	#[pallet::storage]
+	pub(crate) type Deposits<T: Config> =
+		StorageMap<_, Twox64Concat, (T::AccountId, T::Index), (BalanceOf<T>, bool)>;
 
 	#[pallet::genesis_config]
 	pub struct GenesisConfig<T: Config> {

@@ -19,12 +19,18 @@
 
 use crate::{
 	exec::Executable, wasm::PrefabWasmModule, AliveContractInfo, BalanceOf, Config, ContractInfo,
-	ContractInfoOf, Error, Pallet,
+	ContractInfoOf, Deposits, Error, Pallet,
 };
+use codec::{Decode, Encode};
 use frame_support::traits::{Currency, ExistenceRequirement, Get};
+use frame_support::weights::{DispatchInfo, PostDispatchInfo};
 use pallet_contracts_primitives::{RentProjection, RentProjectionResult};
 use sp_core::crypto::UncheckedFrom;
-use sp_runtime::{traits::Saturating, DispatchError, DispatchResult};
+use sp_runtime::{
+	traits::{DispatchInfoOf, Dispatchable, PostDispatchInfoOf, Saturating, SignedExtension},
+	transaction_validity::{InvalidTransaction, TransactionValidityError},
+	DispatchError, DispatchResult,
+};
 
 /// The amount to charge.
 ///
@@ -261,7 +267,8 @@ where
 		verdict: Verdict<T>,
 		evictable_code: Option<PrefabWasmModule<T>>,
 	) -> Result<Option<AliveContractInfo<T>>, DispatchError> {
-		let deposit_pool = Pallet::<T>::account_id();
+		let nonce = <frame_system::Pallet<T>>::account_nonce(tx_origin);
+
 		match (verdict, evictable_code) {
 			(Verdict::Charge { amount }, _) => {
 				let contract = ContractInfo::Alive(AliveContractInfo::<T> {
@@ -270,7 +277,8 @@ where
 					..alive_contract_info
 				});
 				<ContractInfoOf<T>>::insert(account, &contract);
-				amount.deposit(tx_origin, &deposit_pool)?;
+				<Deposits<T>>::insert((tx_origin.clone(), nonce), (amount.amount, false));
+
 				Ok(Some(
 					contract
 						.get_alive()
@@ -284,7 +292,8 @@ where
 					..alive_contract_info
 				});
 				<ContractInfoOf<T>>::insert(account, &contract);
-				amount.refund(&deposit_pool, tx_origin)?;
+				<Deposits<T>>::insert((tx_origin.clone(), nonce), (amount.amount, true));
+
 				Ok(Some(
 					contract
 						.get_alive()
@@ -373,5 +382,84 @@ where
 	/// `RuntimeApi` meaning that the changes will be discarded anyway.
 	pub fn compute_projection(_account: &T::AccountId) -> RentProjectionResult<T::BlockNumber> {
 		Ok(RentProjection::NoEviction)
+	}
+}
+
+/// Require the transactor pay for deposit of contract storage.
+#[derive(Encode, Decode, Clone, Eq, PartialEq)]
+pub struct ChargeDepositPayment<T: Config + Send + Sync>(sp_std::marker::PhantomData<T>);
+
+impl<T: Config + Send + Sync> ChargeDepositPayment<T> {
+	/// Create new `SignedExtension` to check runtime version.
+	pub fn new() -> Self {
+		Self(sp_std::marker::PhantomData)
+	}
+}
+
+impl<T: Config + Send + Sync> sp_std::fmt::Debug for ChargeDepositPayment<T> {
+	#[cfg(feature = "std")]
+	fn fmt(&self, f: &mut sp_std::fmt::Formatter) -> sp_std::fmt::Result {
+		write!(f, "ChargeDepositPayment<{:?}>", self.0)
+	}
+	#[cfg(not(feature = "std"))]
+	fn fmt(&self, _: &mut sp_std::fmt::Formatter) -> sp_std::fmt::Result {
+		Ok(())
+	}
+}
+
+impl<T: Config + Send + Sync> SignedExtension for ChargeDepositPayment<T>
+where
+	T::Call: Dispatchable<Info = DispatchInfo, PostInfo = PostDispatchInfo>,
+	T::AccountId: UncheckedFrom<T::Hash> + AsRef<[u8]>,
+{
+	const IDENTIFIER: &'static str = "ChargeDepositPayment";
+	type AccountId = T::AccountId;
+	type Call = T::Call;
+	type AdditionalSigned = ();
+	type Pre = (
+		// who paid the deposit
+		Self::AccountId,
+		// tx origin nonce
+		T::Index,
+	);
+	fn additional_signed(&self) -> sp_std::result::Result<(), TransactionValidityError> {
+		Ok(())
+	}
+
+	fn pre_dispatch(
+		self,
+		who: &Self::AccountId,
+		_call: &Self::Call,
+		_info: &DispatchInfoOf<Self::Call>,
+		_len: usize,
+	) -> Result<Self::Pre, TransactionValidityError> {
+		let nonce = <frame_system::Pallet<T>>::account_nonce(who);
+		Ok((who.clone(), nonce))
+	}
+
+	fn post_dispatch(
+		pre: Self::Pre,
+		_info: &DispatchInfoOf<Self::Call>,
+		_post_info: &PostDispatchInfoOf<Self::Call>,
+		_len: usize,
+		_result: &DispatchResult,
+	) -> Result<(), TransactionValidityError> {
+		let (tx_origin, nonce) = pre;
+		if let Some((deposit_value, is_refund)) = <Deposits<T>>::take((tx_origin.clone(), nonce)) {
+			let deposit_pool = Pallet::<T>::account_id();
+			log::debug!(target: "runtime::contracts", "post dispatch get deposit: {:?}, is_refund: {}", deposit_value, is_refund);
+
+			let amount = OutstandingAmount::<T>::new(deposit_value);
+			if is_refund {
+				amount
+					.refund(&deposit_pool, &tx_origin)
+					.map_err(|_| TransactionValidityError::Invalid(InvalidTransaction::Payment))?;
+			} else {
+				amount
+					.deposit(&tx_origin, &deposit_pool)
+					.map_err(|_| TransactionValidityError::Invalid(InvalidTransaction::Payment))?;
+			}
+		}
+		Ok(())
 	}
 }
