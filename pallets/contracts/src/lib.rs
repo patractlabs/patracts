@@ -439,14 +439,14 @@ pub mod pallet {
 			// Add some advantage for block producers (who send unsigned extrinsics) by
 			// adding a handicap: for signed extrinsics we use a slightly older block number
 			// for the eviction check. This can be viewed as if we pushed regular users back in past.
-			let handicap = if signed {
+			let _handicap = if signed {
 				T::SignedClaimHandicap::get()
 			} else {
 				Zero::zero()
 			};
 
 			// If poking the contract has lead to eviction of the contract, give out the rewards.
-			match Deposit::<T, PrefabWasmModule<T>>::try_eviction(&dest, handicap)? {
+			match Deposit::<T, PrefabWasmModule<T>>::try_eviction(&rewarded, &dest)? {
 				(Some(rent_payed), code_len) => T::Currency::deposit_into_existing(
 					&rewarded,
 					T::SurchargeReward::get().min(rent_payed),

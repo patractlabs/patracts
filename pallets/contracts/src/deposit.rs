@@ -18,8 +18,8 @@
 //! A module responsible for computing the right amount of weight and charging it.
 
 use crate::{
-	exec::Executable, wasm::PrefabWasmModule, AliveContractInfo, BalanceOf, Config, ContractInfo,
-	ContractInfoOf, Deposits, Error, Pallet,
+	exec::Executable, storage::Storage, wasm::PrefabWasmModule, AliveContractInfo, BalanceOf,
+	Config, ContractInfo, ContractInfoOf, Deposits, Error, Event, Pallet,
 };
 use codec::{Decode, Encode};
 use frame_support::traits::{Currency, ExistenceRequirement, Get};
@@ -34,7 +34,7 @@ use sp_runtime::{
 
 /// The amount to charge.
 ///
-/// This amount respects the contract's rent allowance and the subsistence deposit.
+/// This amount respects the contract's storage deposit and the subsistence deposit.
 /// Because of that, charging the amount cannot remove the contract.
 struct OutstandingAmount<T: Config> {
 	amount: BalanceOf<T>,
@@ -43,17 +43,18 @@ struct OutstandingAmount<T: Config> {
 impl<T: Config> OutstandingAmount<T> {
 	/// Create the new outstanding amount.
 	///
-	/// The amount should be always withdrawable and it should not kill the account.
+	/// The amount should be always transferable and it should not kill the account.
 	fn new(amount: BalanceOf<T>) -> Self {
 		Self { amount }
 	}
 
 	/// Returns the amount this instance wraps.
+	#[allow(unused)]
 	fn peek(&self) -> BalanceOf<T> {
 		self.amount
 	}
 
-	/// Deposit the outstanding amount from the given account.
+	/// Deposit the outstanding amount to the deposit pool from the given account.
 	fn deposit(self, account: &T::AccountId, deposit_pool: &T::AccountId) -> DispatchResult {
 		T::Currency::transfer(
 			account,
@@ -65,7 +66,7 @@ impl<T: Config> OutstandingAmount<T> {
 		Ok(())
 	}
 
-	/// Refund the outstanding amount to the given account.
+	/// Return the outstanding amount to the given account from the deposit pool.
 	fn refund(self, deposit_pool: &T::AccountId, account: &T::AccountId) -> DispatchResult {
 		T::Currency::transfer(
 			deposit_pool,
@@ -79,15 +80,15 @@ impl<T: Config> OutstandingAmount<T> {
 }
 
 enum Verdict<T: Config> {
-	InsufficientDeposit,
 	/// Everything is OK, we just only take some charge.
-	Charge {
-		amount: OutstandingAmount<T>,
-	},
+	Charge { amount: BalanceOf<T> },
 	/// Refund of deposit if storage is deleted.
-	Refund {
-		amount: OutstandingAmount<T>,
-	},
+	Refund { amount: BalanceOf<T> },
+	/// The free balance or rest gas is not enough to pay for storage deposit.
+	InsufficientDeposit,
+	/// Call the contract self-destruct method, delete all storage and state of the contract,
+	/// and return all deposits to the caller.
+	SelfDestruct { amount: Option<BalanceOf<T>> },
 }
 
 pub struct Deposit<T, E>(sp_std::marker::PhantomData<(T, E)>);
@@ -98,21 +99,21 @@ where
 	T::AccountId: UncheckedFrom<T::Hash> + AsRef<[u8]>,
 	E: Executable<T>,
 {
-	/// Returns a fee charged from the contract.
+	/// Returns a fee charged from the increase or decrease of contract storage and whether to refund fee to the tx origin.
 	///
-	/// This function accounts for the storage rent deposit.
+	/// This function accounts for the storage deposit.
 	fn compute_deposit(
 		initial_contract: &AliveContractInfo<T>,
-		contract: &AliveContractInfo<T>,
+		executed_contract: &AliveContractInfo<T>,
 		aggregate_code: Option<u32>,
 	) -> (BalanceOf<T>, bool) {
-		let (bytes_size, bytes_overflow) = contract
+		let (bytes_size, bytes_overflow) = executed_contract
 			.storage_size
 			.saturating_add(aggregate_code.unwrap_or(0))
 			.overflowing_sub(initial_contract.storage_size);
 		let bytes_deposit = T::DepositPerStorageByte::get().saturating_mul(bytes_size.into());
 
-		let (pair_count, pair_count_overflow) = contract
+		let (pair_count, pair_count_overflow) = executed_contract
 			.pair_count
 			.overflowing_sub(initial_contract.pair_count);
 		let pair_count_deposit = T::DepositPerStorageItem::get().saturating_mul(pair_count.into());
@@ -126,43 +127,37 @@ where
 		match (bytes_overflow, pair_count_overflow) {
 			(true, true) => {
 				// bytes minus & pair_count minus
-				let deposit_balance = bytes_deposit.saturating_add(pair_count_deposit);
-				(deposit_balance, true)
+				(bytes_deposit.saturating_add(pair_count_deposit), true)
 			}
 			(true, false) => {
 				// bytes minus & pair_count add
 				if bytes_deposit > pair_count_deposit {
-					let deposit_balance = bytes_deposit.saturating_sub(pair_count_deposit);
-					(deposit_balance, true)
+					(bytes_deposit.saturating_sub(pair_count_deposit), true)
 				} else {
-					let deposit_balance = pair_count_deposit.saturating_sub(bytes_deposit);
-					(deposit_balance, false)
+					(pair_count_deposit.saturating_sub(bytes_deposit), false)
 				}
 			}
 			(false, true) => {
 				// bytes add & pair_count minus
 				if bytes_deposit > pair_count_deposit {
-					let deposit_balance = bytes_deposit.saturating_sub(pair_count_deposit);
-					(deposit_balance, false)
+					(bytes_deposit.saturating_sub(pair_count_deposit), false)
 				} else {
-					let deposit_balance = pair_count_deposit.saturating_sub(bytes_deposit);
-					(deposit_balance, true)
+					(pair_count_deposit.saturating_sub(bytes_deposit), true)
 				}
 			}
 			(false, false) => {
 				// bytes add & pair_count add
-				let deposit_balance = bytes_deposit.saturating_add(pair_count_deposit);
-				(deposit_balance, false)
+				(bytes_deposit.saturating_add(pair_count_deposit), false)
 			}
 		}
 	}
 
-	/// Returns amount of funds available to consume by rent mechanism.
+	/// Returns amount of funds available to consume by deposit mechanism.
 	///
-	/// Rent mechanism cannot consume more than `rent_allowance` set by the contract and it cannot make
+	/// allowed charge must be less than deposit limit and it cannot make
 	/// the balance lower than [`subsistence_threshold`].
 	///
-	/// In case the toal_balance is below the subsistence threshold, this function returns `None`.
+	/// In case the total_balance is below the subsistence threshold, this function returns `None`.
 	fn deposit_budget(
 		total_balance: &BalanceOf<T>,
 		free_balance: &BalanceOf<T>,
@@ -177,8 +172,11 @@ where
 
 		// However, reserved balance cannot be charged so we need to use the free balance
 		// to calculate the actual budget (which can be 0).
-		let rent_allowed_to_charge = free_balance.saturating_sub(subsistence_threshold);
-		Some(<BalanceOf<T>>::min(*deposit_limit, rent_allowed_to_charge))
+		let deposit_allowed_to_charge = free_balance.saturating_sub(subsistence_threshold);
+		Some(<BalanceOf<T>>::min(
+			*deposit_limit,
+			deposit_allowed_to_charge,
+		))
 	}
 
 	/// Consider the case for deposit payment of the tx origin account and returns a `Verdict`.
@@ -194,14 +192,15 @@ where
 		let free_balance = T::Currency::free_balance(tx_origin);
 
 		// An amount of funds to charge for storage taken up by the contract.
-		let (deposit_value, refund) =
+		let (deposit_value, is_refund) =
 			Self::compute_deposit(initial_contract, contract, aggregate_code);
-		if refund {
+		if is_refund {
 			return Verdict::Refund {
-				amount: OutstandingAmount::new(deposit_value),
+				amount: deposit_value,
 			};
 		}
 
+		// TODO 合约调用合约时 limit 是否累加
 		let deposit_budget =
 			match Self::deposit_budget(&total_balance, &free_balance, deposit_limit) {
 				Some(deposit_budget) => deposit_budget,
@@ -232,21 +231,14 @@ where
 					tx_origin, total_balance, free_balance, deposit_value, deposit_budget
 		);
 
-		let insufficient_deposit = deposit_budget < deposit_value;
-		if insufficient_deposit {
+		if deposit_budget < deposit_value {
 			return Verdict::InsufficientDeposit;
 		}
 
-		// // If the rent payment cannot be withdrawn due to locks on the account balance, then evict the
-		// // account.
-		// //
-		// // NOTE: This seems problematic because it provides a way to tombstone an account while
-		// // avoiding the last rent payment. In effect, someone could retroactively set rent_allowance
-		// // for their contract to 0.
 		let dues_limited = deposit_value.min(deposit_budget);
 		return Verdict::Charge {
-			// We choose to use `dues_limited` here instead of `dues` just to err on the safer side.
-			amount: OutstandingAmount::new(dues_limited),
+			// We choose to use `dues_limited` here instead of `deposit_value` just to err on the safer side.
+			amount: dues_limited,
 		};
 	}
 
@@ -256,28 +248,28 @@ where
 	///
 	/// # Note
 	///
-	/// if `evictable_code` is `None` an `Evict` verdict will not be enacted. This is for
+	/// if `evictable_code` is `None` an `SelfDestruct` verdict will not be enacted. This is for
 	/// when calling this function during a `call` where access to the soon to be evicted
 	/// contract should be denied but storage should be left unmodified.
 	fn enact_verdict(
 		tx_origin: &T::AccountId,
 		account: &T::AccountId,
 		alive_contract_info: AliveContractInfo<T>,
-		current_block_number: T::BlockNumber,
 		verdict: Verdict<T>,
 		evictable_code: Option<PrefabWasmModule<T>>,
 	) -> Result<Option<AliveContractInfo<T>>, DispatchError> {
 		let nonce = <frame_system::Pallet<T>>::account_nonce(tx_origin);
+		let current_block_number = <frame_system::Pallet<T>>::block_number();
 
 		match (verdict, evictable_code) {
 			(Verdict::Charge { amount }, _) => {
 				let contract = ContractInfo::Alive(AliveContractInfo::<T> {
 					deduct_block: current_block_number,
-					rent_payed: alive_contract_info.rent_payed.saturating_add(amount.peek()),
+					rent_payed: alive_contract_info.rent_payed.saturating_add(amount),
 					..alive_contract_info
 				});
 				<ContractInfoOf<T>>::insert(account, &contract);
-				<Deposits<T>>::insert((tx_origin.clone(), nonce), (amount.amount, false));
+				<Deposits<T>>::insert((tx_origin.clone(), nonce), (amount, false));
 
 				Ok(Some(
 					contract
@@ -288,11 +280,11 @@ where
 			(Verdict::Refund { amount }, _) => {
 				let contract = ContractInfo::Alive(AliveContractInfo::<T> {
 					deduct_block: current_block_number,
-					rent_payed: alive_contract_info.rent_payed.saturating_sub(amount.peek()),
+					rent_payed: alive_contract_info.rent_payed.saturating_sub(amount),
 					..alive_contract_info
 				});
 				<ContractInfoOf<T>>::insert(account, &contract);
-				<Deposits<T>>::insert((tx_origin.clone(), nonce), (amount.amount, true));
+				<Deposits<T>>::insert((tx_origin.clone(), nonce), (amount, true));
 
 				Ok(Some(
 					contract
@@ -303,14 +295,29 @@ where
 			(Verdict::InsufficientDeposit, _) => Err(DispatchError::Other(
 				"Insufficient fund to deposit for contract storage.",
 			)),
+			(Verdict::SelfDestruct { amount }, Some(code)) => {
+				// TODO Not the final design
+				// We need to remove the trie first because it is the only operation
+				// that can fail and this function is called without a storage
+				// transaction when called through `claim_surcharge`.
+				Storage::<T>::queue_trie_for_deletion(&alive_contract_info)?;
+
+				if let Some(amount) = amount {
+					<Deposits<T>>::insert((tx_origin.clone(), nonce), (amount, true));
+				}
+
+				<ContractInfoOf<T>>::remove(account);
+				code.drop_from_storage();
+				<Pallet<T>>::deposit_event(Event::Evicted(account.clone()));
+				Ok(None)
+			}
+			(Verdict::SelfDestruct { amount: _amount }, None) => Ok(None),
 		}
 	}
 
-	/// Make account paying the rent for the current block number
+	/// Make account paying the deposit for the contract storage.
 	///
-	/// This functions does **not** evict the contract. It returns `None` in case the
-	/// contract is in need of eviction. [`try_eviction`] must
-	/// be called to perform the eviction.
+	/// This functions does **not** evict the contract.
 	pub fn charge(
 		tx_origin: &T::AccountId,
 		account: &T::AccountId,
@@ -319,7 +326,6 @@ where
 		deposit_limit: &BalanceOf<T>,
 		aggregate_code: Option<u32>,
 	) -> Result<Option<AliveContractInfo<T>>, DispatchError> {
-		let current_block_number = <frame_system::Pallet<T>>::block_number();
 		let verdict = Self::consider_case(
 			tx_origin,
 			account,
@@ -328,16 +334,9 @@ where
 			deposit_limit,
 			aggregate_code,
 		);
-		let result = Self::enact_verdict(
-			tx_origin,
-			account,
-			contract,
-			current_block_number,
-			verdict,
-			None,
-		);
+		let result = Self::enact_verdict(tx_origin, account, contract, verdict, None);
 		if let Err(_err) = result {
-			log::error!(target: "runtime::contracts", "enact verdict failed: {:?}", result);
+			log::error!(target: "runtime::contracts", "charge enact verdict failed: {:?}", result);
 		}
 		result
 	}
@@ -356,8 +355,8 @@ where
 	/// NOTE this function performs eviction eagerly. All changes are read and written directly to
 	/// storage.
 	pub fn try_eviction(
+		tx_origin: &T::AccountId,
 		account: &T::AccountId,
-		_handicap: T::BlockNumber,
 	) -> Result<(Option<BalanceOf<T>>, u32), DispatchError> {
 		let contract = <ContractInfoOf<T>>::get(account);
 		let contract = match contract {
@@ -366,7 +365,12 @@ where
 		};
 		let module = PrefabWasmModule::<T>::from_storage_noinstr(contract.code_hash)?;
 		let code_len = module.code_len();
-		Ok((None, code_len))
+		let deposit_payed = contract.rent_payed;
+		let verdict = Verdict::SelfDestruct {
+			amount: Some(deposit_payed),
+		};
+		Self::enact_verdict(tx_origin, account, contract, verdict, Some(module))?;
+		Ok((Some(deposit_payed), code_len))
 	}
 
 	/// Returns the projected time a given contract will be able to sustain paying its rent. The
