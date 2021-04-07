@@ -702,7 +702,7 @@ where
 		let schedule = <CurrentSchedule<T>>::get();
 		let mut ctx = ExecutionContext::<T, PrefabWasmModule<T>>::top_level(origin, &schedule);
 		let result = ctx.call(dest, value, &mut gas_meter, input_data);
-		let gas_consumed = gas_meter.gas_spent();
+		let gas_consumed = gas_meter.gas_spent() + gas_meter.deposit_weight();
 		ContractExecResult {
 			exec_result: result.map(|r| r.0).map_err(|r| r.0),
 			gas_consumed,

@@ -257,7 +257,7 @@ where
 		alive_contract_info: AliveContractInfo<T>,
 		verdict: Verdict<T>,
 		evictable_code: Option<PrefabWasmModule<T>>,
-	) -> Result<Option<AliveContractInfo<T>>, DispatchError> {
+	) -> Result<(Option<AliveContractInfo<T>>, Option<BalanceOf<T>>), DispatchError> {
 		let nonce = <frame_system::Pallet<T>>::account_nonce(tx_origin);
 		let current_block_number = <frame_system::Pallet<T>>::block_number();
 
@@ -271,10 +271,13 @@ where
 				<ContractInfoOf<T>>::insert(account, &contract);
 				<Deposits<T>>::insert((tx_origin.clone(), nonce), (amount, false));
 
-				Ok(Some(
-					contract
-						.get_alive()
-						.expect("We just constructed it as alive. qed"),
+				Ok((
+					Some(
+						contract
+							.get_alive()
+							.expect("We just constructed it as alive. qed"),
+					),
+					Some(amount),
 				))
 			}
 			(Verdict::Refund { amount }, _) => {
@@ -286,10 +289,13 @@ where
 				<ContractInfoOf<T>>::insert(account, &contract);
 				<Deposits<T>>::insert((tx_origin.clone(), nonce), (amount, true));
 
-				Ok(Some(
-					contract
-						.get_alive()
-						.expect("We just constructed it as alive. qed"),
+				Ok((
+					Some(
+						contract
+							.get_alive()
+							.expect("We just constructed it as alive. qed"),
+					),
+					None,
 				))
 			}
 			(Verdict::InsufficientDeposit, _) => Err(DispatchError::Other(
@@ -309,9 +315,9 @@ where
 				<ContractInfoOf<T>>::remove(account);
 				code.drop_from_storage();
 				<Pallet<T>>::deposit_event(Event::Evicted(account.clone()));
-				Ok(None)
+				Ok((None, None))
 			}
-			(Verdict::SelfDestruct { amount: _amount }, None) => Ok(None),
+			(Verdict::SelfDestruct { amount: _amount }, None) => Ok((None, None)),
 		}
 	}
 
@@ -325,7 +331,7 @@ where
 		contract: AliveContractInfo<T>,
 		deposit_limit: &BalanceOf<T>,
 		aggregate_code: Option<u32>,
-	) -> Result<Option<AliveContractInfo<T>>, DispatchError> {
+	) -> Result<(Option<AliveContractInfo<T>>, Option<BalanceOf<T>>), DispatchError> {
 		let verdict = Self::consider_case(
 			tx_origin,
 			account,

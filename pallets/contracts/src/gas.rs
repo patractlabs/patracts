@@ -83,6 +83,8 @@ pub struct GasMeter<T: Config> {
 	gas_limit: Weight,
 	/// Amount of gas left from initial gas limit. Can reach zero.
 	gas_left: Weight,
+	/// Amount of gas that consumed by contract storage.
+	deposit_weight: Weight,
 	_phantom: PhantomData<T>,
 	#[cfg(test)]
 	tokens: Vec<ErasedToken>,
@@ -96,6 +98,7 @@ where
 		GasMeter {
 			gas_limit,
 			gas_left: gas_limit,
+			deposit_weight: 0,
 			_phantom: PhantomData,
 			#[cfg(test)]
 			tokens: Vec::new(),
@@ -203,6 +206,16 @@ where
 	/// Returns how much gas left from the initial budget.
 	pub fn gas_left(&self) -> Weight {
 		self.gas_left
+	}
+
+	/// Set deposit gas consumed by contract storage.
+	pub fn set_deposit_weight(&mut self, amount: Weight) {
+		self.deposit_weight = amount;
+	}
+
+	/// Returns how much gas consumed by contract storage.
+	pub fn deposit_weight(&self) -> Weight {
+		self.deposit_weight
 	}
 
 	/// Turn this GasMeter into a DispatchResult that contains the actually used gas.

@@ -34,7 +34,7 @@ use pallet_contracts_primitives::{
 };
 use sp_core::crypto::UncheckedFrom;
 use sp_runtime::{
-	traits::{Bounded, Convert, Saturating, Zero},
+	traits::{Bounded, CheckedDiv, Convert, SaturatedConversion, Saturating, Zero},
 	Perbill,
 };
 use sp_std::{marker::PhantomData, prelude::*};
@@ -469,7 +469,8 @@ where
 					.and_then(|contract| contract.get_alive())
 					.ok_or(Error::<T>::NotCallable)?;
 
-				let deposit_limit = T::WeightPrice::convert(gas_meter.gas_left());
+				let gas_left = gas_meter.gas_left();
+				let deposit_limit = T::WeightPrice::convert(gas_left);
 				log::debug!(target: "runtime::contracts", "gas spent: {:?}, gas left: {:?}, deposit_limit: {:?}",
                             gas_meter.gas_spent(), gas_meter.gas_left(), deposit_limit);
 
@@ -478,15 +479,24 @@ where
 				// changes would be rolled back in case this contract is called by another
 				// contract.
 				// See: https://github.com/paritytech/substrate/issues/6439#issuecomment-648754324
-				Deposit::<T, E>::charge(
+				let (contract, deposit_value) = Deposit::<T, E>::charge(
 					&tx_origin,
 					&dest,
 					initial_contract,
 					contract,
 					&deposit_limit,
 					None,
-				)?
-				.ok_or(Error::<T>::NotCallable)?;
+				)?;
+				contract.ok_or(Error::<T>::NotCallable)?;
+
+				if let Some(value) = deposit_value {
+					if let Some(deposit) = value
+						.saturating_mul(BalanceOf::<T>::saturated_from(gas_left))
+						.checked_div(&deposit_limit)
+					{
+						gas_meter.set_deposit_weight(deposit.saturated_into());
+					}
+				}
 
 				Ok(output)
 			})
@@ -577,15 +587,15 @@ where
 				// This also makes sure that it is above the subsistence threshold
 				// in order to keep up the guarantuee that we always leave a tombstone behind
 				// with the exception of a contract that called `seal_terminate`.
-				Deposit::<T, E>::charge(
+				let (contract, _deposit_value) = Deposit::<T, E>::charge(
 					&tx_origin,
 					&dest,
 					initial_contract,
 					contract,
 					&deposit_limit,
 					Some(occupied_storage),
-				)?
-				.ok_or(Error::<T>::NewContractNotFunded)?;
+				)?;
+				contract.ok_or(Error::<T>::NewContractNotFunded)?;
 
 				// Send funds unconditionally here. If the tx origin balance is below existential_deposit
 				// then error will be returned here.
