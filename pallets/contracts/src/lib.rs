@@ -188,14 +188,12 @@ pub mod pallet {
 		/// then a contract with 1,000,000 BU that uses 1,000 bytes of storage would pay no rent.
 		/// But if the balance reduced to 500,000 BU and the storage stayed the same at 1,000,
 		/// then it would pay 500 BU/day.
-		// TODO 记录到合约中, 因为未来会更新
 		#[pallet::constant]
 		type DepositPerStorageByte: Get<BalanceOf<Self>>;
 
 		/// The balance a contract needs to deposit per storage item to stay alive indefinitely.
 		///
 		/// It works the same as [`Self::DepositPerStorageByte`] but for storage items.
-		// TODO 记录到合约中, 因为未来会更新
 		#[pallet::constant]
 		type DepositPerStorageItem: Get<BalanceOf<Self>>;
 
@@ -446,7 +444,7 @@ pub mod pallet {
 			};
 
 			// If poking the contract has lead to eviction of the contract, give out the rewards.
-			match Deposit::<T, PrefabWasmModule<T>>::try_eviction(&rewarded, &dest)? {
+			match Deposit::<T, PrefabWasmModule<T>>::try_eviction(&dest)? {
 				(Some(rent_payed), code_len) => T::Currency::deposit_into_existing(
 					&rewarded,
 					T::SurchargeReward::get().min(rent_payed),
@@ -608,6 +606,9 @@ pub mod pallet {
 		StorageExhausted,
 		/// A contract with the same AccountId already exists.
 		DuplicateContract,
+		/// The remaining gas after the execution of the contract is not enough to pay
+		/// the increased deposit of contract storage.
+		InsufficientDeposit,
 	}
 
 	/// Current cost schedule for contracts.
@@ -647,6 +648,13 @@ pub mod pallet {
 	#[pallet::storage]
 	pub(crate) type Deposits<T: Config> =
 		StorageMap<_, Twox64Concat, (T::AccountId, T::Index), (BalanceOf<T>, bool)>;
+
+	/// The storage price recorded when the contract is deployed.
+	///
+	/// Value: (DepositPerStorageByte, DepositPerStorageItem)
+	#[pallet::storage]
+	pub(crate) type DepositPrice<T: Config> =
+		StorageMap<_, Twox64Concat, T::AccountId, (BalanceOf<T>, BalanceOf<T>)>;
 
 	#[pallet::genesis_config]
 	pub struct GenesisConfig<T: Config> {

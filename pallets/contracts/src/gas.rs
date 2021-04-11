@@ -190,9 +190,13 @@ where
 			self.gas_left = self.gas_left - amount;
 			let mut nested = GasMeter::new(amount);
 
+			nested.adjust_deposit_weight(self.deposit_weight);
+
 			let r = f(Some(&mut nested));
 
 			self.gas_left = self.gas_left + nested.gas_left;
+
+			self.deposit_weight = nested.deposit_weight;
 
 			r
 		}
@@ -208,9 +212,9 @@ where
 		self.gas_left
 	}
 
-	/// Set deposit gas consumed by contract storage.
-	pub fn set_deposit_weight(&mut self, amount: Weight) {
-		self.deposit_weight = amount;
+	/// Adjust contract deposit gas consumed by contract storage.
+	pub fn adjust_deposit_weight(&mut self, amount: Weight) {
+		self.deposit_weight = self.deposit_weight.saturating_add(amount);
 	}
 
 	/// Returns how much gas consumed by contract storage.

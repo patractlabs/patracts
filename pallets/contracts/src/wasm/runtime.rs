@@ -67,6 +67,9 @@ pub enum ReturnCode {
 	/// The contract that was called is either no contract at all (a plain account)
 	/// or is a tombstone.
 	NotCallable = 8,
+	/// The remaining gas after the execution of the contract is not enough to pay
+	/// the increased deposit of contract storage.
+	InsufficientDeposit = 9,
 }
 
 impl ConvertibleToWasm for ReturnCode {
@@ -610,6 +613,7 @@ where
 		let not_funded = Error::<E::T>::NewContractNotFunded.into();
 		let no_code = Error::<E::T>::CodeNotFound.into();
 		let invalid_contract = Error::<E::T>::NotCallable.into();
+		let insufficient_deposit = Error::<E::T>::InsufficientDeposit.into();
 
 		match from {
 			x if x == below_sub => Ok(BelowSubsistenceThreshold),
@@ -617,6 +621,7 @@ where
 			x if x == not_funded => Ok(NewContractNotFunded),
 			x if x == no_code => Ok(CodeNotFound),
 			x if x == invalid_contract => Ok(NotCallable),
+			x if x == insufficient_deposit => Ok(InsufficientDeposit),
 			err => Err(err),
 		}
 	}

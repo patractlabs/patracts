@@ -34,7 +34,7 @@ use pallet_contracts_primitives::{
 };
 use sp_core::crypto::UncheckedFrom;
 use sp_runtime::{
-	traits::{Bounded, CheckedDiv, Convert, SaturatedConversion, Saturating, Zero},
+	traits::{Bounded, Convert, Saturating, Zero},
 	Perbill,
 };
 use sp_std::{marker::PhantomData, prelude::*};
@@ -450,7 +450,13 @@ where
 		let result = self
 			.with_nested_context(dest.clone(), initial_contract.trie_id.clone(), |nested| {
 				if value > BalanceOf::<T>::zero() {
-					transfer::<T>(TransferCause::Call, transactor_kind, &caller, &dest, value)?
+					transfer::<T>(
+						TransferCause::Call,
+						transactor_kind,
+						&tx_origin,
+						&dest,
+						value,
+					)?
 				}
 
 				let call_context =
@@ -469,34 +475,29 @@ where
 					.and_then(|contract| contract.get_alive())
 					.ok_or(Error::<T>::NotCallable)?;
 
-				let gas_left = gas_meter.gas_left();
+				let gas_left = gas_meter.gas_left() - gas_meter.deposit_weight();
 				let deposit_limit = T::WeightPrice::convert(gas_left);
-				log::debug!(target: "runtime::contracts", "gas spent: {:?}, gas left: {:?}, deposit_limit: {:?}",
-                            gas_meter.gas_spent(), gas_meter.gas_left(), deposit_limit);
+				log::debug!(
+					target: "runtime::contracts",
+					"call => gas_left: {}, gas_spent: {}, deposit_weight: {}, actual_gas_left: {}, deposit_limit: {:?}",
+					gas_meter.gas_left(), gas_meter.gas_spent(), gas_meter.deposit_weight(), gas_left, deposit_limit
+				);
 
 				// This charges the rent and denies access to a contract that is in need of
 				// eviction by returning `None`. We cannot evict eagerly here because those
 				// changes would be rolled back in case this contract is called by another
 				// contract.
 				// See: https://github.com/paritytech/substrate/issues/6439#issuecomment-648754324
-				let (contract, deposit_value) = Deposit::<T, E>::charge(
+				Deposit::<T, E>::charge(
 					&tx_origin,
 					&dest,
 					initial_contract,
 					contract,
 					&deposit_limit,
 					None,
-				)?;
-				contract.ok_or(Error::<T>::NotCallable)?;
-
-				if let Some(value) = deposit_value {
-					if let Some(deposit) = value
-						.saturating_mul(BalanceOf::<T>::saturated_from(gas_left))
-						.checked_div(&deposit_limit)
-					{
-						gas_meter.set_deposit_weight(deposit.saturated_into());
-					}
-				}
+					gas_meter,
+				)?
+				.ok_or(Error::<T>::NotCallable)?;
 
 				Ok(output)
 			})
@@ -535,15 +536,17 @@ where
 					executable.code_hash().clone(),
 				)?;
 
-				// // Send funds unconditionally here. If the `endowment` is below existential_deposit
-				// // then error will be returned here.
-				// transfer::<T>(
-				// 	TransferCause::Instantiate,
-				// 	transactor_kind,
-				// 	&caller,
-				// 	&dest,
-				// 	endowment,
-				// )?;
+				// Send funds unconditionally here. If the `endowment` is below existential_deposit
+				// then error will be returned here.
+				if endowment > BalanceOf::<T>::zero() || Contracts::<T>::subsistence_threshold() > BalanceOf::<T>::zero() {
+					transfer::<T>(
+						TransferCause::Instantiate,
+						transactor_kind,
+						&tx_origin,
+						&dest,
+						endowment,
+					)?;
+				}
 
 				// Cache the value before calling into the constructor because that
 				// consumes the value. If the constructor creates additional contracts using
@@ -577,35 +580,29 @@ where
 					.and_then(|contract| contract.get_alive())
 					.ok_or(Error::<T>::NotCallable)?;
 
-				let deposit_limit = T::WeightPrice::convert(gas_meter.gas_left())
-					.saturating_sub(Contracts::<T>::subsistence_threshold());
-				log::debug!(target: "runtime::contracts", "gas spent: {:?}, gas left: {:?}, deposit_limit: {:?}",
-                            gas_meter.gas_spent(), gas_meter.gas_left(), deposit_limit);
+				let gas_left = gas_meter.gas_left() - gas_meter.deposit_weight();
+				let deposit_limit = T::WeightPrice::convert(gas_left);
+				log::debug!(
+					target: "runtime::contracts",
+					"instantiate => gas_left: {}, gas_spent: {}, deposit_weight: {}, actual_gas_left: {}, deposit_limit: {:?}",
+					gas_meter.gas_left(), gas_meter.gas_spent(), gas_meter.deposit_weight(), gas_left, deposit_limit
+				);
 
 				// Collect the rent for the first block to prevent the creation of very large
 				// contracts that never intended to pay for even one block.
 				// This also makes sure that it is above the subsistence threshold
 				// in order to keep up the guarantuee that we always leave a tombstone behind
 				// with the exception of a contract that called `seal_terminate`.
-				let (contract, _deposit_value) = Deposit::<T, E>::charge(
+				Deposit::<T, E>::charge(
 					&tx_origin,
 					&dest,
 					initial_contract,
 					contract,
 					&deposit_limit,
 					Some(occupied_storage),
-				)?;
-				contract.ok_or(Error::<T>::NewContractNotFunded)?;
-
-				// Send funds unconditionally here. If the tx origin balance is below existential_deposit
-				// then error will be returned here.
-				transfer::<T>(
-					TransferCause::Instantiate,
-					transactor_kind,
-					&tx_origin,
-					&dest,
-					Contracts::<T>::subsistence_threshold(),
-				)?;
+					gas_meter,
+				)?
+				.ok_or(Error::<T>::NewContractNotFunded)?;
 
 				// Deposit an instantiation event.
 				deposit_event::<T>(vec![], Event::Instantiated(caller.clone(), dest.clone()));
@@ -1282,8 +1279,11 @@ mod tests {
 			assert!(!output.0.is_success());
 			assert_eq!(get_balance(&origin), 100);
 
-			// the rent is still charged
-			assert!(get_balance(&dest) < balance);
+			// // the rent is still charged
+			// assert!(get_balance(&dest) < balance);
+
+			// the deposit is not charged, because of storage of contract not changed.
+			assert_eq!(get_balance(&dest), balance);
 		});
 	}
 

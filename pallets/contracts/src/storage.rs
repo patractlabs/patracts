@@ -20,7 +20,8 @@
 use crate::{
 	exec::{AccountIdOf, StorageKey},
 	weights::WeightInfo,
-	AccountCounter, BalanceOf, CodeHash, Config, ContractInfoOf, DeletionQueue, Error, TrieId,
+	AccountCounter, BalanceOf, CodeHash, Config, ContractInfoOf, DeletionQueue, DepositPrice,
+	Error, TrieId,
 };
 use codec::{Codec, Decode, Encode};
 use frame_support::{
@@ -301,6 +302,14 @@ where
 			};
 
 			*existing = Some(contract.clone().into());
+
+			<DepositPrice<T>>::insert(
+				account,
+				(
+					T::DepositPerStorageByte::get(),
+					T::DepositPerStorageItem::get(),
+				),
+			);
 
 			Ok(contract)
 		})
