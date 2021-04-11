@@ -471,9 +471,9 @@ where
 
 				// We need to re-fetch the contract because changes are written to storage
 				// eagerly during execution.
-				let contract = <ContractInfoOf<T>>::get(&dest)
-					.and_then(|contract| contract.get_alive())
-					.ok_or(Error::<T>::NotCallable)?;
+				// self-destruct (seal_terminate) will be None
+				let contract =
+					<ContractInfoOf<T>>::get(&dest).and_then(|contract| contract.get_alive());
 
 				let gas_left = gas_meter.gas_left() - gas_meter.deposit_weight();
 				let deposit_limit = T::WeightPrice::convert(gas_left);
@@ -496,8 +496,8 @@ where
 					&deposit_limit,
 					None,
 					gas_meter,
-				)?
-				.ok_or(Error::<T>::NotCallable)?;
+				)?;
+				// .ok_or(Error::<T>::NotCallable)?;
 
 				Ok(output)
 			})
@@ -597,12 +597,12 @@ where
 					&tx_origin,
 					&dest,
 					initial_contract,
-					contract,
+					Some(contract),
 					&deposit_limit,
 					Some(occupied_storage),
 					gas_meter,
-				)?
-				.ok_or(Error::<T>::NewContractNotFunded)?;
+				)?;
+				// .ok_or(Error::<T>::NewContractNotFunded)?;
 
 				// Deposit an instantiation event.
 				deposit_event::<T>(vec![], Event::Instantiated(caller.clone(), dest.clone()));
@@ -832,6 +832,15 @@ where
 		)
 		.map_err(|e| (e, 0))?;
 		if let Some(ContractInfo::Alive(info)) = ContractInfoOf::<T>::take(&self_id) {
+			transfer::<T>(
+				TransferCause::Terminate,
+				TransactorKind::Contract,
+				&Contracts::<T>::account_id(),
+				beneficiary,
+				info.rent_payed,
+			)
+			.map_err(|e| (e, 0))?;
+
 			Storage::<T>::queue_trie_for_deletion(&info).map_err(|e| (e, 0))?;
 			let code_len = E::remove_user(info.code_hash);
 			Contracts::<T>::deposit_event(Event::Terminated(self_id, beneficiary.clone()));
@@ -996,14 +1005,14 @@ mod sealing {
 mod tests {
 	use super::*;
 	use crate::{
-		exec::ExportedFunction::*,
-		gas::GasMeter,
-		storage::Storage,
-		tests::{
+		deposit_tests::{
 			test_utils::{get_balance, place_contract, set_balance},
 			ALICE, BOB, CHARLIE,
 		},
-		tests::{Event as MetaEvent, ExtBuilder, Test},
+		deposit_tests::{Event as MetaEvent, ExtBuilder, Test},
+		exec::ExportedFunction::*,
+		gas::GasMeter,
+		storage::Storage,
 		CurrentSchedule, Error, Weight,
 	};
 	use assert_matches::assert_matches;
@@ -1543,13 +1552,7 @@ mod tests {
 					MockExecutable::from_storage(dummy_ch, &schedule, &mut gas_meter).unwrap();
 
 				assert_matches!(
-					ctx.instantiate(
-						0, // <- zero endowment
-						&mut gas_meter,
-						executable,
-						vec![],
-						&[],
-					),
+					ctx.instantiate(14, &mut gas_meter, executable, vec![], &[],),
 					Err(_)
 				);
 			});

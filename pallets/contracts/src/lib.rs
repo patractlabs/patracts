@@ -103,7 +103,8 @@ pub mod chain_extension;
 pub mod weights;
 
 #[cfg(test)]
-mod tests;
+mod deposit_tests;
+// mod tests;
 
 pub use crate::{deposit::ChargeDepositPayment, pallet::*, schedule::Schedule};
 use crate::{

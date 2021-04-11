@@ -181,15 +181,25 @@ where
 		tx_origin: &T::AccountId,
 		account: &T::AccountId,
 		initial_contract: &AliveContractInfo<T>,
-		contract: &AliveContractInfo<T>,
+		contract: Option<AliveContractInfo<T>>,
 		deposit_limit: &BalanceOf<T>,
 		aggregate_code: Option<u32>,
 	) -> Verdict<T> {
+		if contract.is_none() {
+			return Verdict::SelfDestruct {
+				amount: Default::default(),
+			};
+		}
+
 		let total_balance = T::Currency::total_balance(tx_origin);
 
 		// An amount of funds to charge for storage taken up by the contract.
-		let (deposit_value, is_refund) =
-			Self::compute_deposit(account, initial_contract, contract, aggregate_code);
+		let (deposit_value, is_refund) = Self::compute_deposit(
+			account,
+			initial_contract,
+			&contract.unwrap(),
+			aggregate_code,
+		);
 		if is_refund {
 			return Verdict::Refund {
 				amount: deposit_value,
@@ -246,7 +256,7 @@ where
 	/// contract should be denied but storage should be left unmodified.
 	fn enact_verdict(
 		account: &T::AccountId,
-		alive_contract_info: AliveContractInfo<T>,
+		alive_contract_info: Option<AliveContractInfo<T>>,
 		verdict: Verdict<T>,
 		evictable_code: Option<PrefabWasmModule<T>>,
 	) -> Result<Option<AliveContractInfo<T>>, DispatchError> {
@@ -254,6 +264,8 @@ where
 
 		match (verdict, evictable_code) {
 			(Verdict::Charge { amount }, _) => {
+				let alive_contract_info = alive_contract_info.expect("Contract must be alive");
+
 				let contract = ContractInfo::Alive(AliveContractInfo::<T> {
 					deduct_block: current_block_number,
 					rent_payed: alive_contract_info.rent_payed.saturating_add(amount),
@@ -268,6 +280,8 @@ where
 				))
 			}
 			(Verdict::Refund { amount }, _) => {
+				let alive_contract_info = alive_contract_info.expect("Contract must be alive");
+
 				let contract = ContractInfo::Alive(AliveContractInfo::<T> {
 					deduct_block: current_block_number,
 					rent_payed: alive_contract_info.rent_payed.saturating_sub(amount),
@@ -283,7 +297,8 @@ where
 			}
 			(Verdict::InsufficientDeposit { .. }, _) => Err(Error::<T>::InsufficientDeposit.into()),
 			(Verdict::SelfDestruct { .. }, Some(code)) => {
-				// TODO Not the final design
+				let alive_contract_info = alive_contract_info.expect("Contract must be alive");
+
 				// We need to remove the trie first because it is the only operation
 				// that can fail and this function is called without a storage
 				// transaction when called through `claim_surcharge`.
@@ -365,7 +380,7 @@ where
 		tx_origin: &T::AccountId,
 		account: &T::AccountId,
 		initial_contract: AliveContractInfo<T>,
-		contract: AliveContractInfo<T>,
+		contract: Option<AliveContractInfo<T>>,
 		deposit_limit: &BalanceOf<T>,
 		aggregate_code: Option<u32>,
 		gas_meter: &mut GasMeter<T>,
@@ -374,7 +389,7 @@ where
 			tx_origin,
 			account,
 			&initial_contract,
-			&contract,
+			contract.clone(),
 			deposit_limit,
 			aggregate_code,
 		);
@@ -410,8 +425,7 @@ where
 		let verdict = Verdict::SelfDestruct {
 			amount: deposit_payed,
 		};
-		// TODO
-		Self::enact_verdict(account, contract, verdict, Some(module))?;
+		Self::enact_verdict(account, Some(contract), verdict, Some(module))?;
 		Ok((Some(deposit_payed), code_len))
 	}
 
@@ -432,8 +446,12 @@ where
 }
 
 /// Require the transactor pay for deposit of contract storage.
+#[cfg(not(test))]
 #[derive(Encode, Decode, Clone, Eq, PartialEq)]
 pub struct ChargeDepositPayment<T: Config + Send + Sync>(sp_std::marker::PhantomData<T>);
+#[cfg(test)]
+#[derive(Encode, Decode, Clone, Eq, PartialEq)]
+pub struct ChargeDepositPayment<T: Config + Send + Sync>(pub sp_std::marker::PhantomData<T>);
 
 impl<T: Config + Send + Sync> ChargeDepositPayment<T> {
 	/// Create new `SignedExtension` to check runtime version.

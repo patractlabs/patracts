@@ -243,9 +243,9 @@ where
 mod tests {
 	use super::*;
 	use crate::{
+		deposit_tests::{Call, Test, ALICE, BOB},
 		exec::{AccountIdOf, BlockNumberOf, Executable, Ext, RentParams, SeedOf, StorageKey},
 		gas::GasMeter,
-		tests::{Call, Test, ALICE, BOB},
 		BalanceOf, CodeHash, Error, Pallet as Contracts,
 	};
 	use assert_matches::assert_matches;

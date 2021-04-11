@@ -253,7 +253,7 @@ where
 #[cfg(test)]
 mod tests {
 	use super::{GasMeter, Token};
-	use crate::tests::Test;
+	use crate::deposit_tests::Test;
 
 	/// A simple utility macro that helps to match against a
 	/// list of tokens.

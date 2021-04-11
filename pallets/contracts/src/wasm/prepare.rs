@@ -527,7 +527,7 @@ mod tests {
 	use crate::{exec::Ext, schedule::Limits};
 	use std::fmt;
 
-	impl fmt::Debug for PrefabWasmModule<crate::tests::Test> {
+	impl fmt::Debug for PrefabWasmModule<crate::deposit_tests::Test> {
 		fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
 			write!(f, "PreparedContract {{ .. }}")
 		}
@@ -571,7 +571,7 @@ mod tests {
 					},
 					.. Default::default()
 				};
-				let r = do_preparation::<env::Test, crate::tests::Test>(wasm, &schedule);
+				let r = do_preparation::<env::Test, crate::deposit_tests::Test>(wasm, &schedule);
 				assert_matches::assert_matches!(r, $($expected)*);
 			}
 		};
@@ -998,7 +998,7 @@ mod tests {
 			.unwrap();
 			let mut schedule = Schedule::default();
 			schedule.enable_println = true;
-			let r = do_preparation::<env::Test, crate::tests::Test>(wasm, &schedule);
+			let r = do_preparation::<env::Test, crate::deposit_tests::Test>(wasm, &schedule);
 			assert_matches::assert_matches!(r, Ok(_));
 		}
 	}

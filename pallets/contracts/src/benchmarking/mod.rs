@@ -2527,6 +2527,6 @@ benchmarks! {
 
 impl_benchmark_test_suite!(
 	Contracts,
-	crate::tests::ExtBuilder::default().build(),
-	crate::tests::Test,
+	crate::deposit_tests::ExtBuilder::default().build(),
+	crate::deposit_tests::Test,
 );
