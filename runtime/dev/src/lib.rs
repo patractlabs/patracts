@@ -28,8 +28,7 @@ use frame_support::{
 };
 use frame_system::limits::{BlockLength, BlockWeights};
 
-mod constants;
-use crate::constants::currency::*;
+use runtime_common::currency::*;
 
 /// An index to a block.
 pub type BlockNumber = u32;

@@ -5,6 +5,7 @@ members = [
 
     "pallets/contracts",
 
+    "runtime/common",
     "runtime/dev",
     "runtime/patracts",
 ]

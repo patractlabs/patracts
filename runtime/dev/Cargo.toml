@@ -42,6 +42,8 @@ pallet-contracts = { version = "3.0.0", default-features = false, path = "../../
 pallet-contracts-primitives = { version = "3.0.0", default-features = false, path = "../../pallets/contracts/common" }
 pallet-contracts-rpc-runtime-api = { version = "3.0.0", default-features = false, path = "../../pallets/contracts/rpc/runtime-api" }
 
+runtime-common = { path = "../common", default-features = false }
+
 [features]
 default = ["std"]
 std = [
@@ -74,4 +76,6 @@ std = [
     "pallet-contracts/std",
     "pallet-contracts-primitives/std",
     "pallet-contracts-rpc-runtime-api/std",
+
+    "runtime-common/std",
 ]
