@@ -47,6 +47,7 @@ frame-benchmarking-cli = { version = "3.0.0", git = "https://github.com/parityte
 pallet-contracts = { version = "3.0.0", path = "../../../pallets/contracts" }
 pallet-contracts-rpc = { version = "3.0.0", path = "../../../pallets/contracts/rpc" }
 
+core-primitives = { path = "../../../core-primitives" }
 patracts-runtime = { path = "../../../runtime/patracts" }
 
 [build-dependencies]

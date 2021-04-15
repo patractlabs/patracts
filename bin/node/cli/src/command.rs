@@ -18,7 +18,7 @@
 use sc_cli::{ChainSpec, Role, RuntimeVersion, SubstrateCli};
 use sc_service::PartialComponents;
 
-use patracts_runtime::Block;
+use core_primitives::Block;
 
 use crate::cli::{Cli, Subcommand};
 use crate::{chain_spec, service};

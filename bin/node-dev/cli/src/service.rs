@@ -6,7 +6,9 @@ use sc_executor::native_executor_instance;
 
 use ec_service::{config::Configuration, error::Error, TFullParts, TFullStateKv, TaskManager};
 
-use dev_runtime::{self, opaque::Block, RuntimeApi};
+use dev_runtime::{self, RuntimeApi};
+
+use core_primitives::Block;
 
 use crate::rpc;
 

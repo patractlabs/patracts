@@ -3,6 +3,8 @@ members = [
     "bin/node",
     "bin/node-dev",
 
+    "core-primitives",
+
     "pallets/contracts",
 
     "runtime/common",

@@ -1,8 +1,8 @@
-//! A set of constant values used in substrate runtime.
+//! A set of constant values used in patracts runtime.
 
 /// Money matters.
 pub mod currency {
-	use crate::Balance;
+	use core_primitives::Balance;
 
 	pub const DOTS: Balance = 1_000_000_000_000; // old dot, one Dot is 100 Dot(new) now
 	pub const DOLLARS: Balance = DOTS / 100; // 10_000_000_000 // one Dollar is 1 Dot(new) now
@@ -10,17 +10,32 @@ pub mod currency {
 	pub const MILLICENTS: Balance = CENTS / 1_000; // 100_000 // one Millicent is 0.00001 Dot(new) now
 
 	pub const fn deposit(items: u32, bytes: u32) -> Balance {
-		items as Balance * 2 * DOLLARS + (bytes as Balance) * 100 * MILLICENTS
+		items as Balance * 20 * CENTS + (bytes as Balance) * 100 * MILLICENTS
 	}
+}
 
-	#[allow(unused)]
-	pub const fn tombstone_deposit(items: u32, bytes: u32) -> Balance {
-		items as Balance * 10 * CENTS + (bytes as Balance) * 10 * MILLICENTS
-	}
+/// Time and blocks.
+pub mod time {
+	use core_primitives::{BlockNumber, Moment};
+
+	pub const MILLISECS_PER_BLOCK: Moment = 6000;
+
+	pub const SLOT_DURATION: Moment = MILLISECS_PER_BLOCK;
+
+	pub const EPOCH_DURATION_IN_SLOTS: BlockNumber = 1 * HOURS;
+
+	// These time units are defined in number of blocks.
+	pub const MINUTES: BlockNumber = 60_000 / (MILLISECS_PER_BLOCK as BlockNumber);
+	pub const HOURS: BlockNumber = MINUTES * 60;
+	pub const DAYS: BlockNumber = HOURS * 24;
+
+	// 1 in 4 blocks (on average, not counting collisions) will be primary babe blocks.
+	pub const PRIMARY_PROBABILITY: (u64, u64) = (1, 4);
 }
 
 /// Fee-related.
 pub mod fee {
+	use core_primitives::Balance;
 	use frame_support::weights::{
 		constants::ExtrinsicBaseWeight, WeightToFeeCoefficient, WeightToFeeCoefficients,
 		WeightToFeePolynomial,
@@ -28,10 +43,8 @@ pub mod fee {
 	use smallvec::smallvec;
 	pub use sp_runtime::Perbill;
 
-	use crate::Balance;
-
-	// /// The block saturation level. Fees will be updates based on this value.
-	// pub const TARGET_BLOCK_FULLNESS: Perbill = Perbill::from_percent(25);
+	/// The block saturation level. Fees will be updates based on this value.
+	pub const TARGET_BLOCK_FULLNESS: Perbill = Perbill::from_percent(25);
 
 	/// Handles converting a weight scalar to a fee value, based on the scale and granularity of the
 	/// node's balance type.

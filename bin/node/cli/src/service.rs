@@ -15,7 +15,8 @@ use sc_telemetry::{Telemetry, TelemetryWorker};
 use sp_consensus_aura::sr25519::AuthorityPair as AuraPair;
 use sp_inherents::InherentDataProviders;
 
-use patracts_runtime::{self, opaque::Block, RuntimeApi};
+use core_primitives::Block;
+use patracts_runtime::{self, RuntimeApi};
 
 // Our native executor instance.
 native_executor_instance!(

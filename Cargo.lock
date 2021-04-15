@@ -802,6 +802,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-runtime"
+version = "0.1.0"
+dependencies = [
+ "core-primitives",
+ "frame-support",
+ "frame-system",
+ "pallet-transaction-payment",
+ "smallvec 1.6.1",
+ "sp-core",
+ "sp-runtime",
+ "static_assertions",
+]
+
+[[package]]
 name = "concurrent-queue"
 version = "1.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -837,6 +851,15 @@ name = "core-foundation-sys"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b3a71ab494c0b5b860bdc8407ae08978052417070c2ced38573a9157ad75b8ac"
+
+[[package]]
+name = "core-primitives"
+version = "0.8.30"
+dependencies = [
+ "sp-core",
+ "sp-runtime",
+ "sp-std",
+]
 
 [[package]]
 name = "cpp_demangle"
@@ -1175,6 +1198,7 @@ dependencies = [
 name = "dev-runtime"
 version = "0.1.0"
 dependencies = [
+ "common-runtime",
  "frame-executive",
  "frame-support",
  "frame-system",
@@ -1190,7 +1214,6 @@ dependencies = [
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc-runtime-api",
  "parity-scale-codec",
- "runtime-common",
  "serde",
  "smallvec 1.6.1",
  "sp-api",
@@ -4448,6 +4471,7 @@ dependencies = [
 name = "patracts-cli"
 version = "0.1.0"
 dependencies = [
+ "core-primitives",
  "frame-benchmarking",
  "frame-benchmarking-cli",
  "jsonrpc-core",
@@ -4494,6 +4518,7 @@ dependencies = [
 name = "patracts-dev-cli"
 version = "1.0.0"
 dependencies = [
+ "core-primitives",
  "dev-runtime",
  "ec-cli",
  "ec-rpc",
@@ -4534,6 +4559,7 @@ dependencies = [
 name = "patracts-runtime"
 version = "2.0.0"
 dependencies = [
+ "common-runtime",
  "frame-benchmarking",
  "frame-executive",
  "frame-support",
@@ -4553,7 +4579,6 @@ dependencies = [
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc-runtime-api",
  "parity-scale-codec",
- "runtime-common",
  "serde",
  "sp-api",
  "sp-block-builder",
@@ -5349,16 +5374,6 @@ checksum = "d755237fc0f99d98641540e66abac8bc46a0652f19148ac9e21de2da06b326c9"
 dependencies = [
  "libc",
  "winapi 0.3.9",
-]
-
-[[package]]
-name = "runtime-common"
-version = "0.1.0"
-dependencies = [
- "frame-support",
- "smallvec 1.6.1",
- "sp-core",
- "sp-runtime",
 ]
 
 [[package]]

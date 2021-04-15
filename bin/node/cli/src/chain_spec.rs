@@ -1,6 +1,7 @@
+use core_primitives::{AccountId, Signature};
 use patracts_runtime::{
-	AccountId, AuraConfig, BalancesConfig, ContractsConfig, GenesisConfig, GrandpaConfig,
-	Signature, SudoConfig, SystemConfig, WASM_BINARY,
+	AuraConfig, BalancesConfig, ContractsConfig, GenesisConfig, GrandpaConfig, SudoConfig,
+	SystemConfig, WASM_BINARY,
 };
 use sc_service::ChainType;
 use sp_consensus_aura::sr25519::AuthorityId as AuraId;

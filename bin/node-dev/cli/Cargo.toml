@@ -45,6 +45,7 @@ ec-service = { git = "https://github.com/patractlabs/europa", branch = "master" 
 ec-rpc = { git = "https://github.com/patractlabs/europa", branch = "master" }
 ec-cli = { git = "https://github.com/patractlabs/europa", branch = "master" }
 
+core-primitives = { path = "../../../core-primitives" }
 dev-runtime = { path = "../../../runtime/dev" }
 
 [build-dependencies]

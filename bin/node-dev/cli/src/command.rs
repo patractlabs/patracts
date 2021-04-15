@@ -51,7 +51,7 @@ pub fn run() -> sc_cli::Result<()> {
 				let runner = ec_cli::build_runner(&cli, cmd)?;
 				runner.sync_run(|config| {
 					let state_kv = service::new_state_kv(&config, true)?;
-					cmd.run::<dev_runtime::opaque::Block, _>(state_kv)
+					cmd.run::<core_primitives::Block, _>(state_kv)
 				})
 			}
 			Subcommand::Workspace(cmd) => cmd.init_and_run::<Cli>(),

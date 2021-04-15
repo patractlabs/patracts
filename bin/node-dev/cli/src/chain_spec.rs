@@ -5,7 +5,7 @@ use sp_runtime::traits::{IdentifyAccount, Verify};
 
 use ec_service::ChainType;
 
-use dev_runtime::{AccountId, Signature};
+use core_primitives::{AccountId, Signature};
 use dev_runtime::{BalancesConfig, ContractsConfig, GenesisConfig, SudoConfig, SystemConfig};
 
 /// Specialized `ChainSpec`. This is a specialization of the general Substrate ChainSpec type.

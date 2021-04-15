@@ -13,7 +13,7 @@ use sp_block_builder::BlockBuilder;
 use sp_blockchain::{Error as BlockChainError, HeaderBackend, HeaderMetadata};
 use sp_transaction_pool::TransactionPool;
 
-use patracts_runtime::{opaque::Block, AccountId, Balance, BlockNumber, Index};
+use core_primitives::{AccountId, Balance, Block, BlockNumber, Index};
 
 /// Full client dependencies.
 pub struct FullDeps<C, P> {
