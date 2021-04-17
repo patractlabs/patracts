@@ -1,3 +1,6 @@
+use hex_literal::hex;
+use sc_telemetry::serde_json::json;
+
 use core_primitives::{AccountId, Signature};
 use patracts_runtime::{
 	AuraConfig, BalancesConfig, ContractsConfig, GenesisConfig, GrandpaConfig, SudoConfig,
@@ -5,7 +8,7 @@ use patracts_runtime::{
 };
 use sc_service::ChainType;
 use sp_consensus_aura::sr25519::AuthorityId as AuraId;
-use sp_core::{sr25519, Pair, Public};
+use sp_core::{crypto::UncheckedInto, sr25519, Pair, Public};
 use sp_finality_grandpa::AuthorityId as GrandpaId;
 use sp_runtime::traits::{IdentifyAccount, Verify};
 
@@ -166,4 +169,79 @@ fn testnet_genesis(
 			current_schedule: pallet_contracts::Schedule::default().enable_println(enable_println),
 		},
 	}
+}
+
+pub fn staging_testnet_config_genesis() -> Result<ChainSpec, String> {
+	let wasm_binary = WASM_BINARY.ok_or("Testnet wasm binary not available".to_string())?;
+
+	// export secret="crush index company taste champion chat execute armor recipe pear spirit wise"
+	// aura, grandpa
+	// generated with secret:
+	// for i in 1 2 ; do for j in aura; do subkey inspect "$secret"//$j//$i; done; done
+	// and
+	// for i in 1 2 ; do for j in gran; do subkey inspect --scheme ed25519 "$secret"//$j//$i; done; done
+
+	let initial_authorities: Vec<(AuraId, GrandpaId)> = vec![
+		(
+			// 5Cz4oEV1QvkqFP5mBUB4wQPrcXqNiALsz3HZNFBcJHXZtLKc
+			hex!["28b27fd4b0f367cb954ea96d678213e993816e68a3a5603939da40c455cb1135"]
+				.unchecked_into(),
+			// 5CBat2tuQwyKHWPb9jK8QNcqxFMWuyXHRk7m7stoXnipfwSo
+			hex!["053f3ba1e04e2c63251a9f344f3b7cdff4d0778dad869e35272ded2baec127b3"]
+				.unchecked_into(),
+		),
+		(
+			// 5GQsd2ZMPq9C4ZbZ3Biz672fh7fGrur6doXTXKH1d85GSoK9
+			hex!["c052b692bc362ad539b71623b2c589d6cdfe4d4e7ad5c2fbe974997c5739022f"]
+				.unchecked_into(),
+			// 5Fad4hv4NtdULxkV4TNdMEEA5KrM8jU62oec9uDZXW3ZHPTu
+			hex!["9b85edfcf99dc337fd304827ec89ffa54dafa26ed2e2244d563fb1ff99b5a867"]
+				.unchecked_into(),
+		),
+	];
+
+	// generated with secret: subkey inspect "$secret"
+	let root_key: AccountId = hex![
+		// 5G6pXvDeXvrU6VMEtddff9efZkNnUk1tBBbJLYzZ5pjtCUxW
+		"b28de6843f00ac3963fbd5edb234fc0bad58de623e4b668407ba4ff2bdf07151"
+	]
+	.into();
+
+	let endowed_accounts: Vec<AccountId> = vec![root_key.clone()];
+
+	Ok(ChainSpec::from_genesis(
+		// Name
+		"Patracts Deposit Staging",
+		// ID
+		"patracts_deposit_staging",
+		ChainType::Live,
+		move || {
+			testnet_genesis(
+				wasm_binary,
+				initial_authorities.clone(),
+				root_key.clone(),
+				endowed_accounts.clone(),
+				false,
+			)
+		},
+		// Bootnodes
+		vec![],
+		// Telemetry
+		None,
+		// Protocol ID
+		Some("patracts_deposit_staging"),
+		// Properties
+		Some(
+			json!({
+				"ss58Format": patracts_runtime::SS58Prefix::get(),
+				"tokenDecimals": 10,
+				"tokenSymbol": "DOT"
+			})
+			.as_object()
+			.expect("network properties generation can not fail; qed")
+			.to_owned(),
+		),
+		// Extensions
+		None,
+	))
 }
