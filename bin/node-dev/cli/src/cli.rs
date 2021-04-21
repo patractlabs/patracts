@@ -18,4 +18,7 @@ pub enum Subcommand {
 
 	/// Related to workspace operation.
 	Workspace(WorkspaceCmd),
+
+	/// Build a chain specification.
+	BuildSpec(sc_cli::BuildSpecCmd),
 }

@@ -55,6 +55,10 @@ pub fn run() -> sc_cli::Result<()> {
 				})
 			}
 			Subcommand::Workspace(cmd) => cmd.init_and_run::<Cli>(),
+			Subcommand::BuildSpec(cmd) => {
+				let runner = cli.create_runner(cmd)?;
+				runner.sync_run(|config| cmd.run(config.chain_spec, config.network))
+			}
 		},
 		None => {
 			let command = &cli.run;
