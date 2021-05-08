@@ -11,14 +11,11 @@ use pallet_grandpa::{AuthorityId as GrandpaId, AuthorityList as GrandpaAuthority
 use sp_api::impl_runtime_apis;
 use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 use sp_core::{crypto::KeyTypeId, OpaqueMetadata};
+use sp_runtime::traits::{AccountIdLookup, BlakeTwo256, Block as BlockT, NumberFor};
 use sp_runtime::{
 	create_runtime_str, generic, impl_opaque_keys,
 	transaction_validity::{TransactionSource, TransactionValidity},
 	ApplyExtrinsicResult,
-};
-use sp_runtime::{
-	traits::{AccountIdLookup, BlakeTwo256, Block as BlockT, NumberFor},
-	ModuleId,
 };
 use sp_std::prelude::*;
 #[cfg(feature = "std")]
@@ -33,7 +30,7 @@ pub use frame_support::{
 		constants::{BlockExecutionWeight, ExtrinsicBaseWeight, RocksDbWeight, WEIGHT_PER_SECOND},
 		IdentityFee, Weight,
 	},
-	StorageValue,
+	PalletId, StorageValue,
 };
 pub use pallet_balances::Call as BalancesCall;
 use pallet_contracts::weights::WeightInfo;
@@ -125,6 +122,7 @@ impl frame_system::Config for Runtime {
 	type SystemWeightInfo = ();
 	/// This is used as an identifier of the chain. 42 is the generic substrate prefix.
 	type SS58Prefix = SS58Prefix;
+	type OnSetCode = ();
 }
 
 impl pallet_aura::Config for Runtime {
@@ -205,7 +203,7 @@ parameter_types! {
 	pub const SignedClaimHandicap: u32 = 0;
 	pub const MaxDepth: u32 = 100;
 	pub const MaxValueSize: u32 = 16 * 1024;
-	pub const ContractsModuleId: ModuleId = ModuleId(*b"py/contr");
+	pub const ContractsPalletId: PalletId = PalletId(*b"py/contr");
 	// The lazy deletion runs inside on_initialize.
 	pub DeletionWeightLimit: Weight = AVERAGE_ON_INITIALIZE_RATIO *
 		BlockWeights::get().max_block;
@@ -239,7 +237,7 @@ impl pallet_contracts::Config for Runtime {
 	type ChainExtension = ();
 	type DeletionQueueDepth = DeletionQueueDepth;
 	type DeletionWeightLimit = DeletionWeightLimit;
-	type ModuleId = ContractsModuleId;
+	type PalletId = ContractsPalletId;
 }
 
 // Create the runtime by composing the FRAME pallets that were previously configured.
@@ -336,10 +334,6 @@ impl_runtime_apis! {
 		) -> sp_inherents::CheckInherentsResult {
 			data.check_extrinsics(&block)
 		}
-
-		fn random_seed() -> <Block as BlockT>::Hash {
-			RandomnessCollectiveFlip::random_seed().0
-		}
 	}
 
 	impl sp_transaction_pool::runtime_api::TaggedTransactionQueue<Block> for Runtime {
@@ -426,7 +420,7 @@ impl_runtime_apis! {
 		}
 	}
 
-	impl pallet_contracts_rpc_runtime_api::ContractsApi<Block, AccountId, Balance, BlockNumber>
+	impl pallet_contracts_rpc_runtime_api::ContractsApi<Block, AccountId, Balance, BlockNumber, Hash>
 		for Runtime
 	{
 		fn call(
@@ -437,6 +431,18 @@ impl_runtime_apis! {
 			input_data: Vec<u8>,
 		) -> pallet_contracts_primitives::ContractExecResult {
 			Contracts::bare_call(origin, dest, value, gas_limit, input_data)
+		}
+
+		fn instantiate(
+			origin: AccountId,
+			endowment: Balance,
+			gas_limit: u64,
+			code: pallet_contracts_primitives::Code<Hash>,
+			data: Vec<u8>,
+			salt: Vec<u8>,
+		) -> pallet_contracts_primitives::ContractInstantiateResult<AccountId, BlockNumber>
+		{
+			Contracts::bare_instantiate(origin, endowment, gas_limit, code, data, salt, true)
 		}
 
 		fn get_storage(

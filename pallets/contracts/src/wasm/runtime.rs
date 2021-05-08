@@ -18,7 +18,7 @@
 //! Environment definition of the wasm smart-contract runtime.
 
 use crate::{
-	exec::{Ext, StorageKey, TopicOf},
+	exec::{ExecError, ExecResult, Ext, StorageKey, TopicOf},
 	gas::{ChargedAmount, GasMeter, Token},
 	schedule::HostFnWeights,
 	wasm::env_def::ConvertibleToWasm,
@@ -26,9 +26,9 @@ use crate::{
 };
 use codec::{Decode, DecodeAll, Encode};
 use frame_support::{dispatch::DispatchError, ensure, traits::Get, weights::Weight};
-use pallet_contracts_primitives::{ExecError, ExecResult, ExecReturnValue, ReturnFlags};
+use pallet_contracts_primitives::{ExecReturnValue, ReturnFlags};
 use parity_wasm::elements::ValueType;
-use sp_core::crypto::UncheckedFrom;
+use sp_core::{crypto::UncheckedFrom, Bytes};
 use sp_io::hashing::{blake2_128, blake2_256, keccak_256, sha2_256};
 use sp_runtime::traits::SaturatedConversion;
 use sp_std::prelude::*;
@@ -371,15 +371,18 @@ where
 				TrapReason::Return(ReturnData { flags, data }) => {
 					let flags = ReturnFlags::from_bits(flags)
 						.ok_or_else(|| "used reserved bit in return flags")?;
-					Ok(ExecReturnValue { flags, data })
+					Ok(ExecReturnValue {
+						flags,
+						data: Bytes(data),
+					})
 				}
 				TrapReason::Termination => Ok(ExecReturnValue {
 					flags: ReturnFlags::empty(),
-					data: Vec::new(),
+					data: Bytes(Vec::new()),
 				}),
 				TrapReason::Restoration => Ok(ExecReturnValue {
 					flags: ReturnFlags::empty(),
-					data: Vec::new(),
+					data: Bytes(Vec::new()),
 				}),
 				TrapReason::SupervisorError(error) => Err(error)?,
 			};
@@ -390,7 +393,7 @@ where
 			// No traps were generated. Proceed normally.
 			Ok(_) => Ok(ExecReturnValue {
 				flags: ReturnFlags::empty(),
-				data: Vec::new(),
+				data: Bytes(Vec::new()),
 			}),
 			// `Error::Module` is returned only if instantiation or linking failed (i.e.
 			// wasm binary tried to import a function that is not provided by the host).
@@ -628,7 +631,7 @@ where
 
 	/// Fallible conversion of a `ExecResult` to `ReturnCode`.
 	fn exec_into_return_code(from: ExecResult) -> Result<ReturnCode, DispatchError> {
-		use pallet_contracts_primitives::ErrorOrigin::Callee;
+		use crate::exec::ErrorOrigin::Callee;
 
 		let ExecError { error, origin } = match from {
 			Ok(retval) => return Ok(retval.into()),

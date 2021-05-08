@@ -40,6 +40,7 @@ use frame_support::{
 };
 use frame_system::{self as system, EventRecord, Phase};
 use pretty_assertions::assert_eq;
+use sp_core::Bytes;
 use sp_io::hashing::blake2_256;
 use sp_runtime::{
 	testing::{Header, H256},
@@ -230,6 +231,7 @@ impl frame_system::Config for Test {
 	type OnKilledAccount = ();
 	type SystemWeightInfo = ();
 	type SS58Prefix = ();
+	type OnSetCode = ();
 }
 impl pallet_balances::Config for Test {
 	type MaxLocks = ();
@@ -858,11 +860,6 @@ fn signed_claim_surcharge_contract_removals() {
 fn claim_surcharge_malus() {
 	// Test surcharge malus for inherent
 	claim_surcharge(
-		9,
-		|addr| Contracts::claim_surcharge(Origin::none(), addr, Some(ALICE)).is_ok(),
-		true,
-	);
-	claim_surcharge(
 		8,
 		|addr| Contracts::claim_surcharge(Origin::none(), addr, Some(ALICE)).is_ok(),
 		true,
@@ -874,20 +871,20 @@ fn claim_surcharge_malus() {
 	);
 	claim_surcharge(
 		6,
+		|addr| Contracts::claim_surcharge(Origin::none(), addr, Some(ALICE)).is_ok(),
+		true,
+	);
+	claim_surcharge(
+		5,
 		|addr| Contracts::claim_surcharge(Origin::none(), addr, Some(ALICE)).is_ok(),
 		false,
 	);
 
 	// Test surcharge malus for signed
 	claim_surcharge(
-		9,
-		|addr| Contracts::claim_surcharge(Origin::signed(ALICE), addr, None).is_ok(),
-		true,
-	);
-	claim_surcharge(
 		8,
 		|addr| Contracts::claim_surcharge(Origin::signed(ALICE), addr, None).is_ok(),
-		false,
+		true,
 	);
 	claim_surcharge(
 		7,
@@ -896,6 +893,11 @@ fn claim_surcharge_malus() {
 	);
 	claim_surcharge(
 		6,
+		|addr| Contracts::claim_surcharge(Origin::signed(ALICE), addr, None).is_ok(),
+		false,
+	);
+	claim_surcharge(
+		5,
 		|addr| Contracts::claim_surcharge(Origin::signed(ALICE), addr, None).is_ok(),
 		false,
 	);
@@ -1900,7 +1902,7 @@ fn self_destruct_works() {
 						event: Event::pallet_balances(pallet_balances::Event::Transfer(
 							addr.clone(),
 							DJANGO,
-							93_654
+							93_086
 						)),
 						topics: vec![],
 					},
@@ -1925,7 +1927,7 @@ fn self_destruct_works() {
 
 			// check that the beneficiary (django) got remaining balance
 			// some rent was deducted before termination
-			assert_eq!(Balances::free_balance(DJANGO), 1_093_654);
+			assert_eq!(Balances::free_balance(DJANGO), 1_093_086);
 		});
 }
 
@@ -2051,7 +2053,7 @@ fn crypto_hashes() {
 				let mut params = vec![(n + 1) as u8];
 				params.extend_from_slice(input);
 				let result = <Pallet<Test>>::bare_call(ALICE, addr.clone(), 0, GAS_LIMIT, params)
-					.exec_result
+					.result
 					.unwrap();
 				assert!(result.is_success());
 				let expected = hash_fn(input.as_ref());
@@ -2083,7 +2085,7 @@ fn transfer_return_code() {
 			// Contract has only the minimal balance so any transfer will return BelowSubsistence.
 			Balances::make_free_balance_be(&addr, subsistence);
 			let result = Contracts::bare_call(ALICE, addr.clone(), 0, GAS_LIMIT, vec![])
-				.exec_result
+				.result
 				.unwrap();
 			assert_return_code!(result, RuntimeReturnCode::BelowSubsistenceThreshold);
 
@@ -2093,7 +2095,7 @@ fn transfer_return_code() {
 			Balances::make_free_balance_be(&addr, subsistence + 100);
 			Balances::reserve(&addr, subsistence + 100).unwrap();
 			let result = Contracts::bare_call(ALICE, addr, 0, GAS_LIMIT, vec![])
-				.exec_result
+				.result
 				.unwrap();
 			assert_return_code!(result, RuntimeReturnCode::TransferFailed);
 		});
@@ -2130,7 +2132,7 @@ fn call_return_code() {
 				GAS_LIMIT,
 				AsRef::<[u8]>::as_ref(&DJANGO).to_vec(),
 			)
-			.exec_result
+			.result
 			.unwrap();
 			assert_return_code!(result, RuntimeReturnCode::NotCallable);
 
@@ -2157,7 +2159,7 @@ fn call_return_code() {
 					.cloned()
 					.collect(),
 			)
-			.exec_result
+			.result
 			.unwrap();
 			assert_return_code!(result, RuntimeReturnCode::BelowSubsistenceThreshold);
 
@@ -2177,7 +2179,7 @@ fn call_return_code() {
 					.cloned()
 					.collect(),
 			)
-			.exec_result
+			.result
 			.unwrap();
 			assert_return_code!(result, RuntimeReturnCode::TransferFailed);
 
@@ -2194,7 +2196,7 @@ fn call_return_code() {
 					.cloned()
 					.collect(),
 			)
-			.exec_result
+			.result
 			.unwrap();
 			assert_return_code!(result, RuntimeReturnCode::CalleeReverted);
 
@@ -2210,7 +2212,7 @@ fn call_return_code() {
 					.cloned()
 					.collect(),
 			)
-			.exec_result
+			.result
 			.unwrap();
 			assert_return_code!(result, RuntimeReturnCode::CalleeTrapped);
 		});
@@ -2252,7 +2254,7 @@ fn instantiate_return_code() {
 			Balances::make_free_balance_be(&addr, subsistence);
 			let result =
 				Contracts::bare_call(ALICE, addr.clone(), 0, GAS_LIMIT, callee_hash.clone())
-					.exec_result
+					.result
 					.unwrap();
 			assert_return_code!(result, RuntimeReturnCode::BelowSubsistenceThreshold);
 
@@ -2263,14 +2265,14 @@ fn instantiate_return_code() {
 			Balances::reserve(&addr, subsistence + 10_000).unwrap();
 			let result =
 				Contracts::bare_call(ALICE, addr.clone(), 0, GAS_LIMIT, callee_hash.clone())
-					.exec_result
+					.result
 					.unwrap();
 			assert_return_code!(result, RuntimeReturnCode::TransferFailed);
 
 			// Contract has enough balance but the passed code hash is invalid
 			Balances::make_free_balance_be(&addr, subsistence + 10_000);
 			let result = Contracts::bare_call(ALICE, addr.clone(), 0, GAS_LIMIT, vec![0; 33])
-				.exec_result
+				.result
 				.unwrap();
 			assert_return_code!(result, RuntimeReturnCode::CodeNotFound);
 
@@ -2286,7 +2288,7 @@ fn instantiate_return_code() {
 					.cloned()
 					.collect(),
 			)
-			.exec_result
+			.result
 			.unwrap();
 			assert_return_code!(result, RuntimeReturnCode::CalleeReverted);
 
@@ -2302,7 +2304,7 @@ fn instantiate_return_code() {
 					.cloned()
 					.collect(),
 			)
-			.exec_result
+			.result
 			.unwrap();
 			assert_return_code!(result, RuntimeReturnCode::CalleeTrapped);
 		});
@@ -2385,26 +2387,26 @@ fn chain_extension_works() {
 			let result = Contracts::bare_call(ALICE, addr.clone(), 0, GAS_LIMIT, vec![0, 99]);
 			let gas_consumed = result.gas_consumed;
 			assert_eq!(TestExtension::last_seen_buffer(), vec![0, 99]);
-			assert_eq!(result.exec_result.unwrap().data, vec![0, 99]);
+			assert_eq!(result.result.unwrap().data, Bytes(vec![0, 99]));
 
 			// 1 = treat inputs as integer primitives and store the supplied integers
 			Contracts::bare_call(ALICE, addr.clone(), 0, GAS_LIMIT, vec![1])
-				.exec_result
+				.result
 				.unwrap();
 			// those values passed in the fixture
 			assert_eq!(TestExtension::last_seen_inputs(), (4, 1, 16, 12));
 
 			// 2 = charge some extra weight (amount supplied in second byte)
 			let result = Contracts::bare_call(ALICE, addr.clone(), 0, GAS_LIMIT, vec![2, 42]);
-			assert_ok!(result.exec_result);
+			assert_ok!(result.result);
 			assert_eq!(result.gas_consumed, gas_consumed + 42);
 
 			// 3 = diverging chain extension call that sets flags to 0x1 and returns a fixed buffer
 			let result = Contracts::bare_call(ALICE, addr.clone(), 0, GAS_LIMIT, vec![3])
-				.exec_result
+				.result
 				.unwrap();
 			assert_eq!(result.flags, ReturnFlags::REVERT);
-			assert_eq!(result.data, vec![42, 99]);
+			assert_eq!(result.data, Bytes(vec![42, 99]));
 		});
 }
 
@@ -2944,10 +2946,10 @@ fn reinstrument_does_charge() {
 			// Call the contract two times without reinstrument
 
 			let result0 = Contracts::bare_call(ALICE, addr.clone(), 0, GAS_LIMIT, zero.clone());
-			assert!(result0.exec_result.unwrap().is_success());
+			assert!(result0.result.unwrap().is_success());
 
 			let result1 = Contracts::bare_call(ALICE, addr.clone(), 0, GAS_LIMIT, zero.clone());
-			assert!(result1.exec_result.unwrap().is_success());
+			assert!(result1.result.unwrap().is_success());
 
 			// They should match because both where called with the same schedule.
 			assert_eq!(result0.gas_consumed, result1.gas_consumed);
@@ -2959,7 +2961,7 @@ fn reinstrument_does_charge() {
 
 			// This call should trigger reinstrumentation
 			let result2 = Contracts::bare_call(ALICE, addr.clone(), 0, GAS_LIMIT, zero.clone());
-			assert!(result2.exec_result.unwrap().is_success());
+			assert!(result2.result.unwrap().is_success());
 			assert!(result2.gas_consumed > result1.gas_consumed);
 			assert_eq!(
 				result2.gas_consumed,

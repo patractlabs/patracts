@@ -28,15 +28,15 @@ macro_rules! convert_args {
 macro_rules! gen_signature {
 	( ( $( $params: ty ),* ) ) => (
 		{
-			parity_wasm::elements::FunctionType::new(convert_args!($($params),*), None)
+			parity_wasm::elements::FunctionType::new(convert_args!($($params),*), vec![])
 		}
 	);
 
 	( ( $( $params: ty ),* ) -> $returns: ty ) => (
 		{
-			parity_wasm::elements::FunctionType::new(convert_args!($($params),*), Some({
+			parity_wasm::elements::FunctionType::new(convert_args!($($params),*), vec![{
 				use $crate::wasm::env_def::ConvertibleToWasm; <$returns>::VALUE_TYPE
-			}))
+			}])
 		}
 	);
 }
@@ -303,12 +303,12 @@ mod tests {
 	fn macro_gen_signature() {
 		assert_eq!(
 			gen_signature!((i32)),
-			FunctionType::new(vec![ValueType::I32], None),
+			FunctionType::new(vec![ValueType::I32], vec![]),
 		);
 
 		assert_eq!(
 			gen_signature!( (i32, u32) -> u32 ),
-			FunctionType::new(vec![ValueType::I32, ValueType::I32], Some(ValueType::I32)),
+			FunctionType::new(vec![ValueType::I32, ValueType::I32], vec![ValueType::I32]),
 		);
 	}
 
@@ -352,12 +352,12 @@ mod tests {
 		assert!(Env::can_satisfy(
 			b"seal0",
 			b"seal_gas",
-			&FunctionType::new(vec![ValueType::I32], None)
+			&FunctionType::new(vec![ValueType::I32], vec![])
 		));
 		assert!(!Env::can_satisfy(
 			b"seal0",
 			b"not_exists",
-			&FunctionType::new(vec![], None)
+			&FunctionType::new(vec![], vec![])
 		));
 	}
 }

@@ -8,7 +8,7 @@ use sp_runtime::{
 	create_runtime_str, generic, impl_opaque_keys,
 	traits::{AccountIdLookup, BlakeTwo256, Block as BlockT},
 	transaction_validity::{TransactionSource, TransactionValidity},
-	ApplyExtrinsicResult, ModuleId, Perbill,
+	ApplyExtrinsicResult, Perbill,
 };
 use sp_std::prelude::*;
 #[cfg(feature = "std")]
@@ -20,8 +20,8 @@ use pallet_transaction_payment::CurrencyAdapter;
 
 use frame_support::{
 	construct_runtime, parameter_types,
-	traits::Randomness,
 	weights::{constants::RocksDbWeight, IdentityFee, Weight},
+	PalletId,
 };
 
 use common_runtime::*;
@@ -104,6 +104,7 @@ impl frame_system::Config for Runtime {
 	type SystemWeightInfo = ();
 	/// This is used as an identifier of the chain. 42 is the generic substrate prefix.
 	type SS58Prefix = SS58Prefix;
+	type OnSetCode = ();
 }
 
 parameter_types! {
@@ -156,7 +157,7 @@ parameter_types! {
 	pub const SignedClaimHandicap: u32 = 0;
 	pub const MaxDepth: u32 = 100;
 	pub const MaxValueSize: u32 = 16 * 1024;
-	pub const ContractsModuleId: ModuleId = ModuleId(*b"py/contr");
+	pub const ContractsPalletId: PalletId = PalletId(*b"py/contr");
 	// The lazy deletion runs inside on_initialize.
 	pub DeletionWeightLimit: Weight = AVERAGE_ON_INITIALIZE_RATIO *
 		BlockWeights::get().max_block;
@@ -190,7 +191,7 @@ impl pallet_contracts::Config for Runtime {
 	type ChainExtension = ();
 	type DeletionQueueDepth = DeletionQueueDepth;
 	type DeletionWeightLimit = DeletionWeightLimit;
-	type ModuleId = ContractsModuleId;
+	type PalletId = ContractsPalletId;
 }
 
 impl pallet_sudo::Config for Runtime {
@@ -291,10 +292,6 @@ impl_runtime_apis! {
 		) -> sp_inherents::CheckInherentsResult {
 			data.check_extrinsics(&block)
 		}
-
-		fn random_seed() -> <Block as BlockT>::Hash {
-			RandomnessCollectiveFlip::random_seed().0
-		}
 	}
 
 	// impl just for author rpc requirements
@@ -338,7 +335,7 @@ impl_runtime_apis! {
 		}
 	}
 
-	impl pallet_contracts_rpc_runtime_api::ContractsApi<Block, AccountId, Balance, BlockNumber>
+	impl pallet_contracts_rpc_runtime_api::ContractsApi<Block, AccountId, Balance, BlockNumber, Hash>
 		for Runtime
 	{
 		fn call(
@@ -349,6 +346,18 @@ impl_runtime_apis! {
 			input_data: Vec<u8>,
 		) -> pallet_contracts_primitives::ContractExecResult {
 			Contracts::bare_call(origin, dest, value, gas_limit, input_data)
+		}
+
+		fn instantiate(
+			origin: AccountId,
+			endowment: Balance,
+			gas_limit: u64,
+			code: pallet_contracts_primitives::Code<Hash>,
+			data: Vec<u8>,
+			salt: Vec<u8>,
+		) -> pallet_contracts_primitives::ContractInstantiateResult<AccountId, BlockNumber>
+		{
+			Contracts::bare_instantiate(origin, endowment, gas_limit, code, data, salt, true)
 		}
 
 		fn get_storage(

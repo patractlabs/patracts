@@ -111,6 +111,7 @@ use crate::{
 	deposit::Deposit,
 	exec::{Executable, ExecutionContext},
 	gas::GasMeter,
+	rent::Rent,
 	storage::{AliveContractInfo, ContractInfo, DeletedContract, Storage, TombstoneContractInfo},
 	wasm::PrefabWasmModule,
 	weights::WeightInfo,
@@ -118,15 +119,17 @@ use crate::{
 use frame_support::{
 	traits::{Currency, Get, OnUnbalanced, Randomness, Time},
 	weights::{PostDispatchInfo, Weight, WithPostDispatchInfo},
+	PalletId,
 };
 use frame_system::Pallet as System;
 use pallet_contracts_primitives::{
-	ContractAccessError, ContractExecResult, GetStorageResult, RentProjectionResult,
+	Code, ContractAccessError, ContractExecResult, ContractInstantiateResult, GetStorageResult,
+	InstantiateReturnValue, RentProjectionResult,
 };
-use sp_core::crypto::UncheckedFrom;
+use sp_core::{crypto::UncheckedFrom, Bytes};
 use sp_runtime::{
 	traits::{AccountIdConversion, Convert, Hash, Saturating, StaticLookup, Zero},
-	ModuleId, Perbill,
+	Perbill,
 };
 use sp_std::prelude::*;
 
@@ -221,7 +224,7 @@ pub mod pallet {
 
 		/// The contract's module id, used for deriving its sovereign account ID.
 		#[pallet::constant]
-		type ModuleId: Get<ModuleId>;
+		type PalletId: Get<PalletId>;
 
 		/// Used to answer contracts' queries regarding the current weight price. This is **not**
 		/// used to calculate the actual fee and is only for informational purposes.
@@ -696,8 +699,8 @@ where
 {
 	/// Perform a call to a specified contract.
 	///
-	/// This function is similar to `Self::call`, but doesn't perform any address lookups and better
-	/// suitable for calling directly from Rust.
+	/// This function is similar to [`Self::call`], but doesn't perform any address lookups
+	/// and better suitable for calling directly from Rust.
 	///
 	/// It returns the execution result and the amount of used weight.
 	pub fn bare_call(
@@ -713,8 +716,70 @@ where
 		let result = ctx.call(dest, value, &mut gas_meter, input_data);
 		let gas_consumed = gas_meter.gas_spent() + gas_meter.deposit_weight();
 		ContractExecResult {
-			exec_result: result.map(|r| r.0).map_err(|r| r.0),
+			result: result.map(|r| r.0).map_err(|r| r.0.error),
 			gas_consumed,
+			debug_message: Bytes(Vec::new()),
+		}
+	}
+
+	/// Instantiate a new contract.
+	///
+	/// This function is similar to [`Self::instantiate`], but doesn't perform any address lookups
+	/// and better suitable for calling directly from Rust.
+	///
+	/// It returns the execution result, account id and the amount of used weight.
+	///
+	/// If `compute_projection` is set to `true` the result also contains the rent projection.
+	/// This is optional because some non trivial and stateful work is performed to compute
+	/// the projection. See [`Self::rent_projection`].
+	pub fn bare_instantiate(
+		origin: T::AccountId,
+		endowment: BalanceOf<T>,
+		gas_limit: Weight,
+		code: Code<CodeHash<T>>,
+		data: Vec<u8>,
+		salt: Vec<u8>,
+		compute_projection: bool,
+	) -> ContractInstantiateResult<T::AccountId, T::BlockNumber> {
+		let mut gas_meter = GasMeter::new(gas_limit);
+		let schedule = <CurrentSchedule<T>>::get();
+		let mut ctx = ExecutionContext::<T, PrefabWasmModule<T>>::top_level(origin, &schedule);
+		let executable = match code {
+			Code::Upload(Bytes(binary)) => PrefabWasmModule::from_code(binary, &schedule),
+			Code::Existing(hash) => PrefabWasmModule::from_storage(hash, &schedule, &mut gas_meter),
+		};
+		let executable = match executable {
+			Ok(executable) => executable,
+			Err(error) => {
+				return ContractInstantiateResult {
+					result: Err(error.into()),
+					gas_consumed: gas_meter.gas_spent(),
+					debug_message: Bytes(Vec::new()),
+				}
+			}
+		};
+		let result = ctx
+			.instantiate(endowment, &mut gas_meter, executable, data, &salt)
+			.and_then(|(account_id, result)| {
+				let rent_projection = if compute_projection {
+					Some(
+						Rent::<T, PrefabWasmModule<T>>::compute_projection(&account_id)
+							.map_err(|_| <Error<T>>::NewContractNotFunded)?,
+					)
+				} else {
+					None
+				};
+
+				Ok(InstantiateReturnValue {
+					result,
+					account_id,
+					rent_projection,
+				})
+			});
+		ContractInstantiateResult {
+			result: result.map_err(|e| e.error),
+			gas_consumed: gas_meter.gas_spent(),
+			debug_message: Bytes(Vec::new()),
 		}
 	}
 
@@ -805,7 +870,7 @@ where
 	/// This actually does computation. If you need to keep using it, then make sure you cache the
 	/// value and only call this once.
 	pub fn account_id() -> T::AccountId {
-		T::ModuleId::get().into_account()
+		T::PalletId::get().into_account()
 	}
 
 	/// Return the deposit pool account and amount of money in the deposit pool.

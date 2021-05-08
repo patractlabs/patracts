@@ -796,7 +796,6 @@ impl<'a, T: Config> rules::Rules for ScheduleRules<'a, T> {
 #[cfg(test)]
 mod test {
 	use super::*;
-	use crate::deposit_tests::Test;
 
 	#[test]
 	fn print_test_schedule() {

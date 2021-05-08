@@ -15,14 +15,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{Config, Error};
+use crate::{exec::ExecError, Config, Error};
 use frame_support::{
 	dispatch::{
 		DispatchError, DispatchErrorWithPostInfo, DispatchResultWithPostInfo, PostDispatchInfo,
 	},
 	weights::Weight,
 };
-use pallet_contracts_primitives::ExecError;
 use sp_core::crypto::UncheckedFrom;
 use sp_runtime::traits::Zero;
 use sp_std::marker::PhantomData;
